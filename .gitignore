@@ -1,0 +1,21 @@
+# build artefacts
+runner/build/
+runner/.cache/
+*.o
+*.obj
+
+# python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# outputs
+/tmp-out/
+*.ndjson
+*.parquet
+
+# editors
+.vscode/
+.idea/
+*.swp

@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dametech.example/gpu-power-lab/rung-summary.schema.json",
+  "title": "Rung Summary",
+  "description": "Output of a single gpu-power-runner invocation. C emits it, Python consumes it.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "rung_id",
+    "invocation",
+    "device",
+    "timing",
+    "compute",
+    "power",
+    "thermal",
+    "throttle",
+    "utilization",
+    "clocks",
+    "result"
+  ],
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1 },
+    "rung_id": { "type": "string", "minLength": 1 },
+    "invocation": {
+      "type": "object",
+      "required": ["op", "precision", "size", "streams", "warmup_sec", "steady_sec", "sample_hz", "device"],
+      "properties": {
+        "op":         { "type": "string", "enum": ["sgemm", "fft", "memstream"] },
+        "precision":  { "type": "string", "enum": ["fp32", "tf32", "fp16", "bf16", "fp8"] },
+        "size":       { "type": "integer", "minimum": 1 },
+        "streams":    { "type": "integer", "minimum": 1, "maximum": 64 },
+        "warmup_sec": { "type": "number", "minimum": 0 },
+        "steady_sec": { "type": "number", "minimum": 1 },
+        "sample_hz":  { "type": "integer", "minimum": 1, "maximum": 1000 },
+        "device":     { "type": "integer", "minimum": 0 }
+      }
+    },
+    "device": {
+      "type": "object",
+      "required": ["uuid", "name", "driver", "cuda_runtime", "power_limit_w"],
+      "properties": {
+        "uuid":          { "type": "string" },
+        "name":          { "type": "string" },
+        "driver":        { "type": "string" },
+        "cuda_runtime":  { "type": "string" },
+        "power_limit_w": { "type": "number" },
+        "vbios":         { "type": "string" },
+        "pci_bus_id":    { "type": "string" }
+      }
+    },
+    "timing": {
+      "type": "object",
+      "required": ["start_utc", "warmup_ms", "steady_ms", "wall_ms"],
+      "properties": {
+        "start_utc":  { "type": "string", "format": "date-time" },
+        "warmup_ms":  { "type": "number", "minimum": 0 },
+        "steady_ms":  { "type": "number", "minimum": 0 },
+        "wall_ms":    { "type": "number", "minimum": 0 }
+      }
+    },
+    "compute": {
+      "type": "object",
+      "required": ["iterations", "tflops_measured"],
+      "properties": {
+        "iterations":         { "type": "integer", "minimum": 0 },
+        "tflops_measured":    { "type": "number", "minimum": 0 },
+        "tflops_theoretical": { "type": ["number", "null"], "minimum": 0 },
+        "efficiency":         { "type": ["number", "null"], "minimum": 0, "maximum": 2 }
+      }
+    },
+    "power": {
+      "type": "object",
+      "required": ["avg_w", "peak_w", "p50_w", "p95_w", "p99_w", "energy_j"],
+      "properties": {
+        "avg_w":    { "type": "number", "minimum": 0 },
+        "peak_w":   { "type": "number", "minimum": 0 },
+        "p50_w":    { "type": "number", "minimum": 0 },
+        "p95_w":    { "type": "number", "minimum": 0 },
+        "p99_w":    { "type": "number", "minimum": 0 },
+        "energy_j": { "type": "number", "minimum": 0 }
+      }
+    },
+    "thermal": {
+      "type": "object",
+      "required": ["avg_c", "peak_c", "throttled_sec"],
+      "properties": {
+        "avg_c":         { "type": "number" },
+        "peak_c":        { "type": "number" },
+        "throttled_sec": { "type": "number", "minimum": 0 }
+      }
+    },
+    "throttle": {
+      "type": "object",
+      "required": ["mask", "any_throttled", "reasons"],
+      "properties": {
+        "mask":          { "type": "integer", "minimum": 0 },
+        "any_throttled": { "type": "boolean" },
+        "reasons":       { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "utilization": {
+      "type": "object",
+      "required": ["sm_avg_pct", "mem_avg_pct"],
+      "properties": {
+        "sm_avg_pct":  { "type": "number", "minimum": 0, "maximum": 100 },
+        "mem_avg_pct": { "type": "number", "minimum": 0, "maximum": 100 }
+      }
+    },
+    "clocks": {
+      "type": "object",
+      "required": ["sm_avg_mhz", "sm_min_mhz", "sm_max_mhz", "mem_avg_mhz"],
+      "properties": {
+        "sm_avg_mhz":         { "type": "number", "minimum": 0 },
+        "sm_min_mhz":         { "type": "number", "minimum": 0 },
+        "sm_max_mhz":         { "type": "number", "minimum": 0 },
+        "mem_avg_mhz":        { "type": "number", "minimum": 0 },
+        "sm_boost_dropped":   { "type": "boolean" }
+      }
+    },
+    "samples_written": { "type": "integer", "minimum": 0 },
+    "result": {
+      "type": "string",
+      "enum": ["ok", "throttle_hit", "oom", "cuda_error", "nvml_error", "aborted"]
+    },
+    "error_message": { "type": "string" },
+    "throughput": {
+      "description": "Optional op-specific throughput metric. Present for memstream and fft; omitted for sgemm.",
+      "type": "object",
+      "required": ["op_specific_unit", "value"],
+      "properties": {
+        "op_specific_unit": {
+          "type": "string",
+          "enum": ["TFLOPS", "GB/s", "GFFT/s"],
+          "description": "GB/s for memstream, GFFT/s for fft, TFLOPS reserved for future use."
+        },
+        "value": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Throughput in the units given by op_specific_unit."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

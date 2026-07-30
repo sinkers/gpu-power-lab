@@ -1,0 +1,28 @@
+# Example plan — a modest sweep suitable for a smoke test on an A10G/L4.
+# Expands to 12 rungs.
+#
+# Run with:
+#   python campaign.py --plan plans/example.yaml --out-dir /tmp/gpu-lab-out
+
+campaign: example-smoke
+device: 0
+
+defaults:
+  warmup_sec: 5
+  steady_sec: 30
+  sample_hz: 100
+  stop_on_throttle: false
+
+rungs:
+  # Precision × size sweep at fixed concurrency.
+  - op: sgemm
+    precision: [fp32, tf32, fp16, bf16]
+    size:      [4096, 8192]
+    streams:   1
+
+  # Concurrency ramp on the biggest matmul.
+  - op: sgemm
+    precision: fp16
+    size: 8192
+    streams: [1, 2, 4, 8]
+    steady_sec: 45

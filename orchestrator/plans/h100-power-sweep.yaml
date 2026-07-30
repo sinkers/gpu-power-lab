@@ -1,0 +1,18 @@
+# A dedicated H100 power sweep — designed to actually hit the 700W cap.
+# Expands to 8 rungs.
+
+campaign: h100-power-sweep
+device: 0
+
+defaults:
+  warmup_sec: 10
+  steady_sec: 60
+  sample_hz: 100
+  stop_on_throttle: false
+
+rungs:
+  # FP16 is the Tensor-Core-heavy path where H100 draws the most.
+  - op: sgemm
+    precision: fp16
+    size: [8192, 16384]
+    streams: [4, 8, 16, 32]

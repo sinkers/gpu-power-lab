@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "rung_id": "test-0000-sgemm-fp16-4096-s4",
+  "invocation": {
+    "op": "sgemm",
+    "precision": "fp16",
+    "size": 4096,
+    "streams": 4,
+    "warmup_sec": 5.000,
+    "steady_sec": 30.000,
+    "sample_hz": 100,
+    "device": 0
+  },
+  "device": {
+    "uuid": "GPU-00000000-0000-0000-0000-000000000001",
+    "name": "NVIDIA A10G",
+    "driver": "535.104.12",
+    "cuda_runtime": "12.2",
+    "vbios": "94.02.5C.00.09",
+    "pci_bus_id": "0000:00:1E.0",
+    "power_limit_w": 300.00
+  },
+  "timing": {
+    "start_utc": "2026-07-28T10:00:00.000Z",
+    "warmup_ms": 5000.00,
+    "steady_ms": 30000.00,
+    "wall_ms": 35100.00
+  },
+  "compute": {
+    "iterations": 87350,
+    "tflops_measured": 95.1234,
+    "tflops_theoretical": null,
+    "efficiency": null
+  },
+  "power": {
+    "avg_w": 312.456,
+    "peak_w": 315.123,
+    "p50_w": 312.100,
+    "p95_w": 314.800,
+    "p99_w": 315.050,
+    "energy_j": 9373.680
+  },
+  "thermal": {
+    "avg_c": 68.20,
+    "peak_c": 70.00,
+    "throttled_sec": 0.040
+  },
+  "throttle": {
+    "mask": 4,
+    "any_throttled": true,
+    "reasons": ["sw_power_cap"]
+  },
+  "utilization": {
+    "sm_avg_pct": 98.50,
+    "mem_avg_pct": 47.80
+  },
+  "clocks": {
+    "sm_avg_mhz": 1596.0,
+    "sm_min_mhz": 1410.0,
+    "sm_max_mhz": 1599.0,
+    "mem_avg_mhz": 2619.0,
+    "sm_boost_dropped": false
+  },
+  "samples_written": 3000,
+  "result": "ok"
+}

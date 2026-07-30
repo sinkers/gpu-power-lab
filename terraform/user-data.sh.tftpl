@@ -1,0 +1,176 @@
+#!/usr/bin/env bash
+# user-data.sh.tftpl — cloud-init bootstrap for gpu-power-lab
+#
+# Terraform templatefile() variables (injected by main.tf):
+#   repo_url       — git clone URL, or "" to skip clone
+#   repo_ref       — git ref to check out (branch/tag/SHA)
+#   results_bucket — S3 bucket name for campaign results
+#   results_prefix — S3 key prefix (e.g. "gpu-power-lab/")
+#
+# NOTE on escaping: Terraform templatefile() processes all dollar-brace
+# interpolations in this file. Bash variable references using dollar-brace
+# syntax must be written with a doubled dollar sign, e.g. $${VARNAME}, so
+# Terraform emits a literal dollar-brace expansion for bash to evaluate.
+# Bare $VARNAME (no braces) is unambiguous and passes through fine.
+#
+# This script runs as root on first boot inside the AWS Deep Learning AMI
+# (Ubuntu 22.04). The AMI already ships CUDA, cuDNN, cuBLAS, and a working
+# NVIDIA driver — we only need to install build tools and bootstrap the repo.
+#
+# All output is tee'd to /var/log/gpu-lab-bootstrap.log.
+# ─────────────────────────────────────────────────────────────────────────────
+set -euo pipefail
+
+LOGFILE="/var/log/gpu-lab-bootstrap.log"
+INSTALL_DIR="/opt/gpu-power-lab"
+OUTDIR="/var/lib/gpu-lab/out"
+SERVICE_USER="ubuntu"
+
+exec > >(tee -a "$LOGFILE") 2>&1
+
+echo "======================================================================"
+echo " gpu-power-lab bootstrap starting: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+echo "======================================================================"
+
+# ── 1. System packages ──────────────────────────────────────────────────────
+echo "[1/6] Installing system packages..."
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -q
+apt-get install -y -q \
+    build-essential \
+    cmake \
+    git \
+    python3-venv \
+    python3-pip \
+    awscli \
+    jq \
+    nvtop
+
+echo "  Done."
+
+# ── 2. Verify NVIDIA stack ───────────────────────────────────────────────────
+echo "[2/6] Verifying NVIDIA driver and CUDA..."
+if command -v nvidia-smi &>/dev/null; then
+    echo "--- nvidia-smi output ---"
+    nvidia-smi
+    echo "--- nvcc version ---"
+    nvcc --version || echo "  nvcc not on PATH; check /usr/local/cuda/bin/"
+else
+    echo "WARNING: nvidia-smi not found. Driver may not be loaded yet."
+    echo "  Check 'sudo nvidia-smi' after first login."
+fi
+echo "  Done."
+
+# ── 3. Clone repository (or skip if repo_url is empty) ──────────────────────
+echo "[3/6] Setting up source tree..."
+%{ if repo_url != "" ~}
+echo "  Cloning ${repo_url} @ ${repo_ref} into $${INSTALL_DIR}"
+if [ -d "$INSTALL_DIR/.git" ]; then
+    echo "  Directory already exists; pulling latest."
+    git -C "$INSTALL_DIR" fetch --quiet origin
+    git -C "$INSTALL_DIR" checkout "${repo_ref}"
+    git -C "$INSTALL_DIR" pull --ff-only origin "${repo_ref}" || true
+else
+    git clone --quiet "${repo_url}" "$INSTALL_DIR"
+    git -C "$INSTALL_DIR" checkout "${repo_ref}"
+fi
+%{ else ~}
+echo "  repo_url is empty — skipping git clone."
+echo "  Transfer sources manually, e.g.:"
+echo "    rsync -av ./gpu-power-lab/ ubuntu@<instance>:$INSTALL_DIR/"
+if [ ! -d "$INSTALL_DIR" ]; then
+    mkdir -p "$INSTALL_DIR"
+fi
+%{ endif ~}
+chown -R "$SERVICE_USER":"$SERVICE_USER" "$INSTALL_DIR"
+echo "  Done."
+
+# ── 4. Build the C runner ────────────────────────────────────────────────────
+echo "[4/6] Building C runner..."
+%{ if repo_url != "" ~}
+if [ -f "$INSTALL_DIR/scripts/build.sh" ]; then
+    echo "  Running scripts/build.sh as $SERVICE_USER..."
+    sudo -u "$SERVICE_USER" bash "$INSTALL_DIR/scripts/build.sh" \
+        2>&1 | tee -a "$LOGFILE" || {
+        echo "  WARNING: build.sh exited non-zero."
+        echo "  The runner binary may be absent; check $LOGFILE after login."
+    }
+else
+    echo "  WARNING: $INSTALL_DIR/scripts/build.sh not found."
+    echo "  Run it manually after transferring sources."
+fi
+%{ else ~}
+echo "  Skipping build (no repo cloned). Run scripts/build.sh after scp."
+%{ endif ~}
+echo "  Done."
+
+# ── 5. Environment variables ─────────────────────────────────────────────────
+echo "[5/6] Writing environment variables to /etc/environment..."
+# Remove any stale entries before re-adding.
+# Use a temp file to avoid clobbering /etc/environment on grep failure.
+tmp=$(mktemp)
+grep -v '^RESULTS_BUCKET=' /etc/environment | \
+    grep -v '^RESULTS_PREFIX=' > "$tmp" || true
+mv "$tmp" /etc/environment
+
+# Terraform has already substituted the values below at plan/apply time.
+cat >> /etc/environment <<'ENVEOF'
+RESULTS_BUCKET="${results_bucket}"
+RESULTS_PREFIX="${results_prefix}"
+ENVEOF
+
+echo "  RESULTS_BUCKET=${results_bucket}"
+echo "  RESULTS_PREFIX=${results_prefix}"
+echo "  Done."
+
+# ── 6. Systemd service unit ───────────────────────────────────────────────────
+echo "[6/6] Installing gpu-power-lab-campaign.service (disabled by default)..."
+mkdir -p "$OUTDIR"
+chown "$SERVICE_USER":"$SERVICE_USER" "$OUTDIR"
+
+# The UNITEOF heredoc is NOT single-quoted, so bash expands $INSTALL_DIR etc.
+# Terraform has already passed through $${INSTALL_DIR} → literal bash var
+# expansion for bash to resolve when the heredoc is written to disk.
+cat > /etc/systemd/system/gpu-power-lab-campaign.service <<UNITEOF
+[Unit]
+Description=gpu-power-lab benchmark campaign
+After=network-online.target
+Wants=network-online.target
+# Service is installed DISABLED. Enable explicitly once your plan and
+# built binary are in place:
+#   sudo systemctl enable --now gpu-power-lab-campaign.service
+
+[Service]
+Type=oneshot
+# Run as the ubuntu user so Python venv and output files have correct ownership.
+User=$${SERVICE_USER}
+WorkingDirectory=$${INSTALL_DIR}
+EnvironmentFile=/etc/environment
+ExecStart=/usr/bin/python3 orchestrator/campaign.py \
+    --plan orchestrator/plans/example.yaml \
+    --out-dir $${OUTDIR}
+StandardOutput=journal+console
+StandardError=journal+console
+# Slightly elevate priority — still behind system services.
+Nice=-5
+# Discourage OOM-killer from targeting the campaign.
+OOMScoreAdjust=-500
+
+[Install]
+WantedBy=multi-user.target
+UNITEOF
+
+systemctl daemon-reload
+# Intentionally NOT calling systemctl enable — operator does that.
+echo "  Service installed but DISABLED."
+echo "  To run a campaign once:    sudo systemctl start gpu-power-lab-campaign.service"
+echo "  To follow live output:     sudo journalctl -f -u gpu-power-lab-campaign.service"
+echo "  To enable on future boots: sudo systemctl enable gpu-power-lab-campaign.service"
+echo "  Done."
+
+echo "======================================================================"
+echo " gpu-power-lab bootstrap complete: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+echo " Bootstrap log: $LOGFILE"
+echo " Install dir:   $INSTALL_DIR"
+echo " Output dir:    $OUTDIR"
+echo "======================================================================"

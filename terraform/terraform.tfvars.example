@@ -1,0 +1,48 @@
+###############################################################################
+# terraform.tfvars.example — copy to terraform.tfvars and fill in real values.
+#
+# IMPORTANT: terraform.tfvars (without .example) is git-ignored to prevent
+# leaking CIDRs, bucket names, or public keys into version control.
+###############################################################################
+
+# ── AWS region ───────────────────────────────────────────────────────────────
+aws_region = "ap-southeast-2"
+
+# ── Network access ───────────────────────────────────────────────────────────
+# Replace with your actual egress IP: curl -s https://checkip.amazonaws.com
+ssh_ingress_cidr = "203.0.113.42/32"
+
+# ── SSH key ───────────────────────────────────────────────────────────────────
+# Option A (default): let Terraform create a key pair from your public key.
+ssh_public_key = "ssh-ed25519 AAAA...your-public-key-material... user@host"
+# key_name = null   # leave null to use ssh_public_key above
+
+# Option B: reference an existing key pair already uploaded to AWS.
+# key_name       = "my-existing-key-pair-name"
+# ssh_public_key = ""   # not used when key_name is set
+
+# ── Instance ──────────────────────────────────────────────────────────────────
+instance_type = "g5.xlarge"   # A10G, ~$1.20/hr on-demand ap-southeast-2
+# instance_type = "g6e.xlarge"    # L40S, check current pricing
+# instance_type = "p4d.24xlarge"  # 8×A100, ~$40/hr — destroy immediately!
+# instance_type = "p5.48xlarge"   # 8×H100, ~$100/hr — destroy immediately!
+
+# Set to a specific AMI ID to pin a known-good image (optional).
+# ami_id = "ami-0123456789abcdef0"
+
+# Spot pricing (~70% discount) — instance can be interrupted with 2 min notice.
+use_spot = false
+
+# ── S3 results bucket (must already exist — not created by this stack) ────────
+results_bucket = "my-gpu-lab-results-bucket"
+results_prefix = "gpu-power-lab/"
+
+# ── Timestream (optional) ─────────────────────────────────────────────────────
+# Leave both null to skip Timestream IAM policy entirely.
+# timestream_database = "gpu-lab-telemetry"
+# timestream_table    = "rung-samples"
+
+# ── Repository ────────────────────────────────────────────────────────────────
+# Set repo_url to auto-clone on first boot. Leave empty to transfer manually.
+repo_url = "https://github.com/yourorg/gpu-power-lab.git"
+repo_ref = "main"

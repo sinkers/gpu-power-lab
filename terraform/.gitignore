@@ -1,0 +1,23 @@
+# Terraform-generated state and provider cache — never commit these.
+
+# Provider plugins and lock file (the lock file itself is safe to commit,
+# but is excluded here for simplicity; re-enable by removing the next line).
+.terraform/
+.terraform.lock.hcl
+
+# State files — contain sensitive data including private key material.
+*.tfstate
+*.tfstate.backup
+*.tfstate.*.backup
+
+# Variable files with real values — keep secrets out of git.
+# The .example file IS committed and intentionally excluded from this pattern.
+*.tfvars
+!*.tfvars.example
+
+# macOS noise
+.DS_Store
+
+# Crash log from Terraform itself
+crash.log
+crash.*.log
