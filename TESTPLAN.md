@@ -279,6 +279,12 @@ Makefile targets) rather than writing it again.
 start-to-finish unattended, per-rung wall-clock known well enough to
 budget the 8× node run to ±20%.
 
+**T2 status: done** — see `results/t2-b300`. 90.4% of 1100 W sustained,
+an 881 W swing, no throttle bit ever set. The synthetic ceiling is now a
+known reference point, which is what makes the real-workload comparison
+in `docs/real-workload-plan.md` (R1 training, R2 inference) worth
+running before T3.
+
 ### T3 — Bare-metal 8×B300 node. Cost: ~$30–70/hr
 
 `p6-b300.48xlarge` is already in `check_gpu_availability.py`; run it

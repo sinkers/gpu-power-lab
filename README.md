@@ -42,6 +42,18 @@ performance for grid service.
   Living document; claims are marked verified or unverified.
 - `TESTPLAN.md` — how the code gets written and validated on cheap
   hardware before it runs on a bare-metal 8×B300 node.
+- `docs/real-workload-plan.md` — what comes next: a training waterfall and
+  a maximum-inference sweep on one B300, then the 8×B300 node where the
+  fabric contributes and eight GPUs can be made to swing in phase.
+
+## Results
+
+- `results/t2-b300/` — **B300 SXM6**: 90.4% of 1100 W sustained, an 881 W
+  swing in 200 ms, and the 528 W gap between two ways of driving the tensor
+  cores. Report: `report.html` (`python3 scripts/generate_report.py
+  results/t2-b300`).
+- `results/t1-a10g/` — A10G: first end-to-end run, and the Ampere result
+  that B300 later inverted.
 
 ## Architecture
 
