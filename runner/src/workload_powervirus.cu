@@ -79,6 +79,12 @@
 /* Atomic fan-out. Power of two so the mask below is cheap. */
 #define GPL_ATOMIC_SLOTS 1024
 
+/* Role-map size. 64 rather than 32: with eight roles a 32-slot map cannot
+ * represent a mix like 5:1:1:1 without rounding one role to zero, and a role
+ * that silently disappears is exactly what produces a confident wrong
+ * attribution. Defined here, above the kernel that indexes with it. */
+#define GPL_ROLE_MAP_SLOTS 64
+
 #define GPL_WARP_SIZE   32
 #define GPL_BLOCK_WARPS 8
 #define GPL_BLOCK_DIM   (GPL_WARP_SIZE * GPL_BLOCK_WARPS)
@@ -189,7 +195,7 @@ void gpl_powervirus_kernel(const unsigned char *__restrict__ role_map,
             a0 = __sinf(a0) + 1.0f;
             a1 = __expf(a1 * 0.5f) * 0.5f;
             a2 = __logf(a2 + 2.0f);
-            a3 = __sqrtf(a3 + 1.0f);
+            a3 = __frsqrt_rn(a3 + 1.0f) + 1.0f;
         }
         keep = a0 + a1 + a2 + a3;
 
@@ -390,14 +396,7 @@ static void tensor_stream_free(gpl_tensor_stream_t *ts) {
     ts->active = false;
 }
 
-/* Build the 64-entry role map from the mix weights.
- *
- * 64 rather than 32 entries: with eight roles a 32-slot map cannot represent
- * a mix like 5:1:1:1 without rounding one of them to zero, and a role that
- * silently disappears is exactly the sort of thing that produces a confident
- * wrong attribution. */
-#define GPL_ROLE_MAP_SLOTS 64
-
+/* Build the role map from the mix weights. */
 static void role_weights(const gpl_args_t *a, int w[GPL_ROLE_COUNT]) {
     /* With the cuBLAS backend the in-kernel tensor role leaves the kernel
      * entirely - its warps go back to the other roles and the tensor work
