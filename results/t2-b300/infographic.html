@@ -1,0 +1,178 @@
+<title>One GPU, One Kilowatt</title>
+<style>
+  /* Deliberately single-theme: this page exists to be screenshotted into a
+     feed, so it commits to one dark instrument-panel look and paints every
+     colour explicitly rather than inheriting the host's ground. */
+  :root {
+    --ground:#0C1116;
+    --panel:#141C24;
+    --panel-2:#1B252F;
+    --rule:#26323D;
+    --ink:#EAF0F5;
+    --ink-2:#B9C6D1;
+    --muted:#7E8E9C;
+    --signal:#2E97BA;
+    --signal-dim:#2E97BA33;
+    --oxide:#C46F3F;
+    --oxide-dim:#C46F3F33;
+    --mono: ui-monospace,"SF Mono",SFMono-Regular,"JetBrains Mono",Menlo,Consolas,monospace;
+    --serif: Charter,"Bitstream Charter","Iowan Old Style",Cambria,Georgia,serif;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--ground); color:var(--ink);
+         font-family:var(--serif); -webkit-font-smoothing:antialiased; }
+
+  .card { width:min(100%,1200px); margin:0 auto; padding:64px 64px 52px;
+          display:flex; flex-direction:column; gap:44px; background:var(--ground); }
+
+  .kicker { display:flex; justify-content:space-between; align-items:baseline;
+            font-family:var(--mono); font-size:15px; letter-spacing:.16em;
+            text-transform:uppercase; color:var(--muted);
+            border-bottom:1px solid var(--rule); padding-bottom:16px; }
+  .kicker b { color:var(--signal); font-weight:500; }
+
+  h1 { margin:0; font-size:60px; line-height:1.04; letter-spacing:-.022em;
+       font-weight:600; text-wrap:balance; max-width:17ch; }
+  .sub { margin:0; font-size:22px; line-height:1.45; color:var(--ink-2); max-width:52ch; }
+
+  /* One plot, one axis. All three quantities are watts on the same scale,
+     with the 1100 W cap drawn across the whole width so every column is read
+     against it. The third column is a range, not a level, so it is drawn as
+     a band rather than a fill. */
+  .stage { display:grid; grid-template-columns:1fr 340px; gap:56px; align-items:start; }
+  .plot { position:relative; height:340px; padding-top:26px; }
+  .cols { display:flex; align-items:stretch; gap:38px; height:100%; }
+  .col { flex:1; position:relative; }
+  .colbar { position:absolute; left:0; right:0; bottom:0; top:0;
+            background:var(--panel); border:1px solid var(--rule); }
+  .fill { position:absolute; left:0; right:0; background:var(--signal); }
+  .fill.ox { background:var(--oxide); }
+  .fill.band { background:var(--oxide-dim);
+               border-top:3px solid var(--oxide); border-bottom:3px solid var(--oxide); }
+  .colnum { position:absolute; left:0; right:0; text-align:center;
+            font-family:var(--mono); font-size:26px; font-weight:600;
+            font-variant-numeric:tabular-nums; letter-spacing:-.02em; }
+  .colnum.sig { color:var(--signal); } .colnum.ox { color:var(--oxide); }
+  /* Drawn above the columns, not behind them: the cap has to cross the bars
+     for the comparison to read at a glance. */
+  .cap { position:absolute; left:0; right:0; border-top:2px dashed #EAF0F573;
+         pointer-events:none; z-index:3; }
+  .cols { position:relative; z-index:1; }
+  .caplabel { position:absolute; right:0; top:-24px; font-family:var(--mono);
+              font-size:13px; letter-spacing:.11em; color:var(--ink-2);
+              text-transform:uppercase; }
+  .axislabels { display:flex; gap:38px; margin-top:14px; }
+  .axislabels > div { flex:1; font-family:var(--mono); font-size:14px;
+                      color:var(--muted); text-align:center; line-height:1.45;
+                      border-top:1px solid var(--rule); padding-top:12px; }
+  .axislabels b { display:block; color:var(--ink-2); font-weight:500; }
+
+  .facts { display:flex; flex-direction:column; gap:20px; }
+  .fact { background:var(--panel); border:1px solid var(--rule);
+          border-left:3px solid var(--signal); padding:18px 20px;
+          display:flex; flex-direction:column; gap:6px; }
+  .fact.ox { border-left-color:var(--oxide); }
+  .fact .k { font-family:var(--mono); font-size:13px; letter-spacing:.12em;
+             text-transform:uppercase; color:var(--muted); }
+  .fact .v { font-family:var(--mono); font-size:34px; font-weight:600;
+             letter-spacing:-.02em; font-variant-numeric:tabular-nums; line-height:1; }
+  .fact .v.sig { color:var(--signal); } .fact .v.ox { color:var(--oxide); }
+  .fact .n { font-size:15px; color:var(--ink-2); line-height:1.4; }
+
+  .strip { display:grid; grid-template-columns:repeat(3,1fr); gap:1px;
+           background:var(--rule); border:1px solid var(--rule); }
+  .cell { background:var(--panel); padding:24px 24px 26px;
+          display:flex; flex-direction:column; gap:8px; }
+  .cell .h { font-family:var(--mono); font-size:13px; letter-spacing:.12em;
+             text-transform:uppercase; color:var(--signal); }
+  .cell p { margin:0; font-size:17px; line-height:1.5; color:var(--ink-2); }
+  .cell p b { color:var(--ink); font-weight:600; }
+
+  footer { display:flex; justify-content:space-between; align-items:baseline;
+           font-family:var(--mono); font-size:14px; color:var(--muted);
+           border-top:1px solid var(--rule); padding-top:18px; }
+</style>
+
+<div class="card">
+
+  <div class="kicker">
+    <span>gpu-power-lab · field test</span>
+    <span><b>NVIDIA B300 SXM6</b> · 1100 W · 17 Aug 2026</span>
+  </div>
+
+  <div>
+    <h1>How much power can one GPU actually be made to pull?</h1>
+  </div>
+  <p class="sub">We wrote a synthetic workload whose only goal is to draw current, put it on a
+    Blackwell B300, and measured what the silicon does when nothing is in the way.</p>
+
+  <div class="stage">
+    <div>
+      <div class="plot">
+        <div class="cap" style="bottom:91.7%"><span class="caplabel">1100 W cap</span></div>
+        <div class="cols">
+          <div class="col">
+            <div class="colbar"></div>
+            <div class="fill" style="height:82.9%; bottom:0"></div>
+            <span class="colnum sig" style="bottom:calc(82.9% + 8px)">995 W</span>
+          </div>
+          <div class="col">
+            <div class="colbar"></div>
+            <div class="fill ox" style="height:65.1%; bottom:0"></div>
+            <span class="colnum ox" style="bottom:calc(65.1% + 8px)">781 W</span>
+          </div>
+          <div class="col">
+            <div class="colbar"></div>
+            <div class="fill band" style="bottom:16.3%; height:73.4%"></div>
+            <span class="colnum ox" style="bottom:calc(89.7% + 8px)">881 W</span>
+          </div>
+        </div>
+      </div>
+      <div class="axislabels">
+        <div><b>Synthetic peak</b>995 W sustained · 90.4% of the cap</div>
+        <div><b>Memory-bound</b>781 W · the closest proxy we have to live inference</div>
+        <div><b>Swing, on command</b>196 → 1076 W in 200 ms</div>
+      </div>
+    </div>
+
+    <div class="facts">
+      <div class="fact">
+        <span class="k">Sustained ceiling</span>
+        <span class="v sig">90.4%</span>
+        <span class="n">of an 1100 W part — and the throttle bits never fired once, so the
+          remaining headroom is the workload's fault, not the hardware's.</span>
+      </div>
+      <div class="fact ox">
+        <span class="k">Controllable swing</span>
+        <span class="v ox">881 W</span>
+        <span class="n">One GPU, square-waved at 2.5 Hz. Eight of them in phase is a ~7 kW step
+          at the node.</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="strip">
+    <div class="cell">
+      <span class="h">Why it matters</span>
+      <p>A GPU fleet that can be driven to its ceiling and then modulated is a
+        <b>controllable load</b>. The same capability, uncontrolled, is a power-quality
+        problem.</p>
+    </div>
+    <div class="cell">
+      <span class="h">The trap we nearly fell into</span>
+      <p>The obvious way to write the tensor loop draws <b>460 W</b>. The right way draws
+        <b>989 W</b>. Same silicon, same session — a 528 W measurement error waiting to happen.</p>
+    </div>
+    <div class="cell">
+      <span class="h">What real jobs leave on the table</span>
+      <p>Training and inference sit <b>10–30% below</b> this ceiling. That gap is overhead —
+        sync barriers, collective waits, memory stalls — not silicon.</p>
+    </div>
+  </div>
+
+  <footer>
+    <span>Single GPU · in-band NVML measurement · no chassis-level instrumentation</span>
+    <span>DAME · gpu-power-lab</span>
+  </footer>
+
+</div>
