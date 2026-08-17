@@ -28,6 +28,7 @@
 
 #include "workload.h"
 
+#include <cublas_v2.h>
 #include <cuda_fp16.h>
 #include <cuda_runtime.h>
 #include <stdio.h>
@@ -143,9 +144,120 @@ void gpl_powervirus_kernel(const unsigned char *__restrict__ role_map,
     if (keep == 1.2345678e-30f) sink[0] = keep;
 }
 
+/*
+ * Concurrent cuBLAS tensor stream.
+ *
+ * The wmma role above is warp-synchronous: it consumes warp slots, so on
+ * every architecture it competes with the FMA and DRAM roles for one fixed
+ * budget. That is what made mixing lose to pure FFMA on A10G.
+ *
+ * tcgen05 on Blackwell is different — asynchronous, issued by a single
+ * thread (PTX ISA 9.7.17 Table 49) — so tensor work there need not displace
+ * anything. Reaching it without hand-writing PTX means letting cuBLAS emit
+ * it: run a GEMM loop on its own stream, concurrently with the FFMA/DRAM
+ * kernel on other streams, and let the block scheduler interleave them.
+ *
+ * Whether the two genuinely overlap is exactly the O1 question. Comparing
+ * --tensor-backend wmma against cublas on the same silicon isolates it.
+ */
+typedef struct {
+    cublasHandle_t h;
+    cudaStream_t   stream;
+    void          *dA, *dB, *dC;
+    int            n;
+    cudaDataType   in_t, out_t;
+    cublasComputeType_t comp_t;
+    bool           active;
+} gpl_tensor_stream_t;
+
+static int tensor_stream_init(gpl_workload_ctx_t *ctx, gpl_tensor_stream_t *ts) {
+    const gpl_args_t *a = ctx->args;
+    memset(ts, 0, sizeof(*ts));
+
+    /* Square GEMM sized to stay resident; big enough that launch overhead
+     * is negligible against the MMA work. */
+    ts->n = a->size > 0 ? a->size : 4096;
+
+    switch (a->precision) {
+        case GPL_PREC_FP32:
+            ts->in_t = CUDA_R_32F; ts->out_t = CUDA_R_32F;
+            ts->comp_t = CUBLAS_COMPUTE_32F; break;
+        case GPL_PREC_TF32:
+            ts->in_t = CUDA_R_32F; ts->out_t = CUDA_R_32F;
+            ts->comp_t = CUBLAS_COMPUTE_32F_FAST_TF32; break;
+        case GPL_PREC_BF16:
+            ts->in_t = CUDA_R_16BF; ts->out_t = CUDA_R_16BF;
+            ts->comp_t = CUBLAS_COMPUTE_32F; break;
+        case GPL_PREC_FP16:
+        default:
+            ts->in_t = CUDA_R_16F; ts->out_t = CUDA_R_16F;
+            ts->comp_t = CUBLAS_COMPUTE_16F; break;
+    }
+
+    size_t esz = (ts->in_t == CUDA_R_32F) ? 4 : 2;
+    size_t bytes = (size_t)ts->n * ts->n * esz;
+
+    if (cudaMalloc(&ts->dA, bytes) != cudaSuccess ||
+        cudaMalloc(&ts->dB, bytes) != cudaSuccess ||
+        cudaMalloc(&ts->dC, (size_t)ts->n * ts->n * ((ts->out_t == CUDA_R_32F) ? 4 : 2))
+            != cudaSuccess) {
+        ctx->error = "tensor stream: out of memory";
+        return -1;
+    }
+    /* 0x3c is half(~1.0); values are never checked. */
+    cudaMemset(ts->dA, 0x3c, bytes);
+    cudaMemset(ts->dB, 0x3c, bytes);
+
+    if (cublasCreate(&ts->h) != CUBLAS_STATUS_SUCCESS) {
+        ctx->error = "cublasCreate failed";
+        return -1;
+    }
+    if (cudaStreamCreate(&ts->stream) != cudaSuccess) {
+        ctx->error = "tensor stream create failed";
+        return -1;
+    }
+    cublasSetStream(ts->h, ts->stream);
+    cublasSetMathMode(ts->h, CUBLAS_TENSOR_OP_MATH);
+    ts->active = true;
+    return 0;
+}
+
+/* Enqueue `count` GEMMs on the tensor stream. Non-blocking: the whole point
+ * is that these run alongside the FFMA/DRAM kernel. */
+static void tensor_stream_enqueue(gpl_tensor_stream_t *ts, int count) {
+    if (!ts->active) return;
+    float alpha_f = 1.0f, beta_f = 1.0f;      /* beta=1 keeps C live */
+    unsigned short alpha_h = 0x3C00, beta_h = 0x3C00;
+    const void *alpha = &alpha_f, *beta = &beta_f;
+    if (ts->comp_t == CUBLAS_COMPUTE_16F) { alpha = &alpha_h; beta = &beta_h; }
+
+    for (int i = 0; i < count; i++) {
+        cublasGemmEx(ts->h, CUBLAS_OP_N, CUBLAS_OP_N,
+                     ts->n, ts->n, ts->n,
+                     alpha, ts->dA, ts->in_t, ts->n,
+                            ts->dB, ts->in_t, ts->n,
+                     beta,  ts->dC, ts->out_t, ts->n,
+                     ts->comp_t, CUBLAS_GEMM_DEFAULT_TENSOR_OP);
+    }
+}
+
+static void tensor_stream_free(gpl_tensor_stream_t *ts) {
+    if (!ts->active) return;
+    cublasDestroy(ts->h);
+    cudaStreamDestroy(ts->stream);
+    cudaFree(ts->dA); cudaFree(ts->dB); cudaFree(ts->dC);
+    ts->active = false;
+}
+
 /* Build the 32-entry role map from the mix weights. */
 static void build_role_map(const gpl_args_t *a, unsigned char map[32]) {
-    int wt = a->mix_tensor, wf = a->mix_fma, wd = a->mix_dram;
+    /* With the cuBLAS backend the tensor role leaves the kernel entirely —
+     * its warps go back to FMA/DRAM and the tensor work arrives on its own
+     * stream. If the mix is tensor-only, the kernel has nothing to do and
+     * the weights below collapse to zero; the caller handles that by not
+     * launching it at all. */
+    int wt = a->tensor_cublas ? 0 : a->mix_tensor;
+    int wf = a->mix_fma, wd = a->mix_dram;
     int total = wt + wf + wd;
     if (total <= 0) { wt = 1; total = 1; wf = wd = 0; }
 
@@ -196,6 +308,20 @@ int gpl_workload_powervirus_run(gpl_workload_ctx_t *ctx) {
     CUDA_OK(cudaMemset(d_stream, 0x3c, buf_bytes));
     CUDA_OK(cudaMemset(d_sink, 0, sizeof(float)));
 
+    /* Tensor work via a concurrent cuBLAS stream, when asked for. */
+    gpl_tensor_stream_t tstream;
+    memset(&tstream, 0, sizeof(tstream));
+    const bool use_cublas_tensor = (a->tensor_cublas && a->mix_tensor > 0);
+    if (use_cublas_tensor && tensor_stream_init(ctx, &tstream) != 0) return -1;
+
+    /* GEMMs enqueued per batch, scaled by the tensor weight relative to the
+     * others so --mix-* still means something across both backends. */
+    const int gemms_per_batch = use_cublas_tensor
+        ? (a->mix_tensor > 0 ? a->mix_tensor : 1) : 0;
+
+    /* Tensor-only under cuBLAS means no kernel at all. */
+    const bool run_kernel = !(use_cublas_tensor && a->mix_fma == 0 && a->mix_dram == 0);
+
     unsigned char role_map[32];
     build_role_map(a, role_map);
     CUDA_OK(cudaMemcpy(d_role, role_map, 32, cudaMemcpyHostToDevice));
@@ -208,6 +334,13 @@ int gpl_workload_powervirus_run(gpl_workload_ctx_t *ctx) {
     }
     gpl_logf("powervirus: %d blocks x %d warps | warp mix tensor=%d fma=%d dram=%d /32 | stream=%.0f MiB",
              blocks, GPL_BLOCK_WARPS, n_t, n_f, n_d, buf_bytes / 1048576.0);
+    if (use_cublas_tensor) {
+        gpl_logf("  tensor backend: cuBLAS %s GEMM n=%d, %d per batch on a concurrent stream%s",
+                 gpl_prec_name(a->precision), tstream.n, gemms_per_batch,
+                 run_kernel ? "" : " (kernel disabled: tensor-only)");
+    } else {
+        gpl_logf("  tensor backend: in-kernel wmma (warp-synchronous)");
+    }
 
     int nstreams = a->streams;
     cudaStream_t *streams = (cudaStream_t *)calloc(nstreams, sizeof(cudaStream_t));
@@ -234,10 +367,12 @@ int gpl_workload_powervirus_run(gpl_workload_ctx_t *ctx) {
     uint64_t t_start = gpl_mono_ns();
     uint64_t warmup_ns = (uint64_t)(a->warmup_sec * 1e9);
     while (gpl_mono_ns() - t_start < warmup_ns) {
-        for (int b = 0; b < batch; b++)
-            for (int s = 0; s < nstreams; s++)
-                gpl_powervirus_kernel<<<blocks, GPL_BLOCK_DIM, 0, streams[s]>>>(
-                    d_role, d_stream, stream_elems, inner, d_sink);
+        tensor_stream_enqueue(&tstream, gemms_per_batch * batch);
+        if (run_kernel)
+            for (int b = 0; b < batch; b++)
+                for (int s = 0; s < nstreams; s++)
+                    gpl_powervirus_kernel<<<blocks, GPL_BLOCK_DIM, 0, streams[s]>>>(
+                        d_role, d_stream, stream_elems, inner, d_sink);
         CUDA_OK(cudaDeviceSynchronize());
         ctx->iterations_warmup += (uint64_t)nstreams * batch;
     }
@@ -266,24 +401,29 @@ int gpl_workload_powervirus_run(gpl_workload_ctx_t *ctx) {
              * measurement. */
             uint64_t b0 = gpl_mono_ns();
             while (gpl_mono_ns() - b0 < burst_ns) {
-                for (int s = 0; s < nstreams; s++)
-                    gpl_powervirus_kernel<<<blocks, GPL_BLOCK_DIM, 0, streams[s]>>>(
-                        d_role, d_stream, stream_elems, inner, d_sink);
+                tensor_stream_enqueue(&tstream, gemms_per_batch);
+                if (run_kernel)
+                    for (int s = 0; s < nstreams; s++)
+                        gpl_powervirus_kernel<<<blocks, GPL_BLOCK_DIM, 0, streams[s]>>>(
+                            d_role, d_stream, stream_elems, inner, d_sink);
                 CUDA_OK(cudaDeviceSynchronize());
                 ctx->iterations_steady += nstreams;
             }
             sleep_ms(a->duty_off_ms);
         } else {
-            for (int b = 0; b < batch; b++)
-                for (int s = 0; s < nstreams; s++)
-                    gpl_powervirus_kernel<<<blocks, GPL_BLOCK_DIM, 0, streams[s]>>>(
-                        d_role, d_stream, stream_elems, inner, d_sink);
+            tensor_stream_enqueue(&tstream, gemms_per_batch * batch);
+            if (run_kernel)
+                for (int b = 0; b < batch; b++)
+                    for (int s = 0; s < nstreams; s++)
+                        gpl_powervirus_kernel<<<blocks, GPL_BLOCK_DIM, 0, streams[s]>>>(
+                            d_role, d_stream, stream_elems, inner, d_sink);
             CUDA_OK(cudaDeviceSynchronize());
             ctx->iterations_steady += (uint64_t)nstreams * batch;
         }
     }
     ctx->compute_seconds_steady = (double)(gpl_mono_ns() - s_start) / 1e9;
 
+    tensor_stream_free(&tstream);
     for (int i = 0; i < nstreams; i++) cudaStreamDestroy(streams[i]);
     free(streams);
     cudaFree(d_stream);

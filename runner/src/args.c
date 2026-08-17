@@ -18,6 +18,7 @@ void gpl_args_defaults(gpl_args_t *a) {
     a->out_summary = NULL;
     a->rung_id = NULL;
     a->stop_on_throttle = false;
+    a->tensor_cublas = false;
     a->mix_tensor = 1;
     a->mix_fma = 1;
     a->mix_dram = 1;
@@ -81,6 +82,9 @@ static void usage(FILE *f, const char *argv0) {
         "\n"
         "Powervirus mix (relative weights, 0 disables the unit):\n"
         "  --mix-tensor N         tensor-core warps                 (default: 1)\n"
+        "  --tensor-backend B     wmma | cublas                     (default: wmma)\n"
+        "                         cublas runs a concurrent GEMM stream; on\n"
+        "                         Blackwell that is the path to tcgen05.\n"
         "  --mix-fma N            FP32 FFMA-chain warps             (default: 1)\n"
         "  --mix-dram N           DRAM-streaming warps              (default: 1)\n"
         "\n"
@@ -125,6 +129,7 @@ int gpl_args_parse(int argc, char **argv, gpl_args_t *a) {
         {"rung-id",           required_argument, 0, 'r'},
         {"stop-on-throttle",  no_argument,       0, 'T'},
         {"mix-tensor",        required_argument, 0, 1001},
+        {"tensor-backend",    required_argument, 0, 1009},
         {"mix-fma",           required_argument, 0, 1002},
         {"mix-dram",          required_argument, 0, 1003},
         {"duty-on-ms",        required_argument, 0, 1004},
@@ -160,6 +165,11 @@ int gpl_args_parse(int argc, char **argv, gpl_args_t *a) {
             case 'r': a->rung_id = optarg; break;
             case 'T': a->stop_on_throttle = true; break;
             case 1001: a->mix_tensor = atoi(optarg); break;
+            case 1009:
+                if      (!strcmp(optarg, "cublas")) a->tensor_cublas = true;
+                else if (!strcmp(optarg, "wmma"))   a->tensor_cublas = false;
+                else { fprintf(stderr, "invalid --tensor-backend: %s\n", optarg); return 2; }
+                break;
             case 1002: a->mix_fma = atoi(optarg); break;
             case 1003: a->mix_dram = atoi(optarg); break;
             case 1004: a->duty_on_ms = atof(optarg); break;

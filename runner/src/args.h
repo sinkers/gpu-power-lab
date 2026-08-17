@@ -3,6 +3,12 @@
 
 #include <stdbool.h>
 
+/* Included from .cu files, which nvcc compiles as C++, but defined in
+ * args.c as C11. */
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef enum {
     GPL_OP_SGEMM = 1,
     GPL_OP_FFT,
@@ -32,6 +38,17 @@ typedef struct {
     const char *rung_id;       /* optional rung id, generated if NULL */
     bool       stop_on_throttle;
 
+    /* Tensor role implementation for powervirus.
+     *   wmma   — warp-synchronous mma.sync in our own kernel. Occupies
+     *            warp slots, so on any architecture it competes with the
+     *            FMA and DRAM roles for the same budget.
+     *   cublas — a concurrent cuBLAS GEMM stream. On Blackwell this is how
+     *            we reach tcgen05, which is async and single-thread-issued,
+     *            and therefore the only way to test whether tensor work can
+     *            overlap the other roles instead of displacing them.
+     * This distinction IS the O1 experiment on Blackwell. */
+    bool       tensor_cublas;
+
     /* --- O1: powervirus mix weights (relative, 0 disables that unit) --- */
     int        mix_tensor;
     int        mix_fma;
@@ -60,5 +77,9 @@ int gpl_args_parse(int argc, char **argv, gpl_args_t *a);
 
 const char *gpl_op_name(gpl_op_t op);
 const char *gpl_prec_name(gpl_prec_t p);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
