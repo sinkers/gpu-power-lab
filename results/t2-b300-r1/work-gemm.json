@@ -1,0 +1,13 @@
+{
+ "phase": "gemm",
+ "iters": 34796,
+ "seconds": 55.548,
+ "tokens": 285048832,
+ "tokens_per_s": 5131610.3,
+ "model_tflops": 0.0,
+ "params_b": 7.78,
+ "batch": 2,
+ "seqlen": 4096,
+ "dtype": "bf16",
+ "peak_mem_gb": 0.7
+}

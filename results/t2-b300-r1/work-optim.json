@@ -1,0 +1,13 @@
+{
+ "phase": "optim",
+ "iters": 132,
+ "seconds": 55.626,
+ "tokens": 1081344,
+ "tokens_per_s": 19439.7,
+ "model_tflops": 908.0,
+ "params_b": 7.78,
+ "batch": 2,
+ "seqlen": 4096,
+ "dtype": "bf16",
+ "peak_mem_gb": 94.7
+}

@@ -25,7 +25,11 @@ fi
 HOST="$1"; shift
 DEST="$1"; shift
 SSHA=("$@")
-REMOTE="${GPL_WORK:-/mnt/data/gpu-power-lab}/results"
+# Where results land on the box. campaign.sh uses $GPL_WORK/results; the
+# older batch scripts write flat into a directory. GPL_REMOTE_DIR overrides
+# both, because a drain pointed at the wrong path silently pulls nothing,
+# which looks exactly like a campaign that has not produced anything yet.
+REMOTE="${GPL_REMOTE_DIR:-${GPL_WORK:-/mnt/data/gpu-power-lab}/results}"
 INTERVAL="${GPL_DRAIN_INTERVAL:-45}"
 
 mkdir -p "$DEST"
@@ -68,6 +72,7 @@ while true; do
     # The campaign log and any stderr are small and worth having every pass.
     scp -q "${SSHA[@]}" "$HOST:${GPL_WORK:-/mnt/data/gpu-power-lab}/campaign.log" \
         "$DEST/" 2>/dev/null || true
+    scp -q "${SSHA[@]}" "$HOST:/tmp/batch3.log" "$DEST/" 2>/dev/null || true
 
     if ssh "${SSHA[@]}" "$HOST" "[ -f ${GPL_WORK:-/mnt/data/gpu-power-lab}/RECLAIM_IMMINENT ]" 2>/dev/null; then
         echo "[$(date -u +%H:%M:%S)] RECLAMATION NOTICE on the box — draining hard"

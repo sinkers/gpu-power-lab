@@ -1,0 +1,13 @@
+{
+ "phase": "fwdbwd",
+ "iters": 140,
+ "seconds": 55.61,
+ "tokens": 1146880,
+ "tokens_per_s": 20623.8,
+ "model_tflops": 963.3,
+ "params_b": 7.78,
+ "batch": 2,
+ "seqlen": 4096,
+ "dtype": "bf16",
+ "peak_mem_gb": 79.2
+}

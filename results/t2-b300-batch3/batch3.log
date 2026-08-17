@@ -1,0 +1,45 @@
+[22:04:41] cap sweep (fixed work, 4000 iters each)
+  cap-1100w                avg   787.2W  %lim  71.6   48C  clk 2032  edp 0.0002501  edpp 1.252e-07  -
+  cap-900w                 avg   886.4W  %lim  98.5   48C  clk 1935  edp 0.0002461  edpp 1.301e-07  sw_power_cap
+  cap-700w                 avg   692.1W  %lim  98.9   45C  clk 1457  edp 0.0002921  edpp 1.898e-07  sw_power_cap
+  cap-550w                 avg   546.9W  %lim  99.4   42C  clk 1152  edp 0.0003681  edpp 3.006e-07  sw_power_cap
+  cap-450w                 avg   448.2W  %lim  99.6   40C  clk  926  edp 0.0004524  edpp 4.566e-07  sw_power_cap
+[22:05:26] precision ladder
+  prec-fp16                avg   967.6W  %lim  88.0   53C  clk 2032  edp 0.0002667  edpp 1.401e-07  -
+  prec-bf16                avg  1036.6W  %lim  94.2   55C  clk 2032  edp 0.0002588  edpp 1.296e-07  -
+  prec-tf32                avg   990.1W  %lim  90.0   54C  clk 2032  edp 0.001078  edpp 1.112e-06  -
+  prec-fp32                avg  1014.5W  %lim  92.2   55C  clk 2032  edp 0.00108  edpp 1.115e-06  -
+  prec-fp64                avg   215.1W  %lim  19.6   36C  clk 2032  edp 234.9  edpp 245.5  -
+  prec-int8                avg   304.6W  %lim  27.7   36C  clk 2032  edp 0.06673  edpp 0.0009886  -
+  prec-fp8                 avg   955.4W  %lim  86.9   53C  clk 2032  edp 5.893e-05  edpp 1.468e-08  -
+[22:08:31]   fp4: unsupported on this part (expected for some)
+  prec-fp4                 avg     0.0W  %lim   0.0    0C  clk    0  edp 0  edpp 0  -
+[22:08:31] attribution: single units
+  unit-fma                 avg   420.4W  %lim  38.2   43C  clk 2032  edp 0.0005841  edpp 6.892e-07  -
+  unit-dram                avg   764.8W  %lim  69.5   44C  clk 2032  edp 0.008755  edpp 2.964e-05  -
+  unit-l2                  avg   550.3W  %lim  50.0   45C  clk 2032  edp 0.0002171  edpp 1.364e-07  -
+  unit-sfu                 avg   415.4W  %lim  37.8   41C  clk 2032  edp 0.000938  edpp 1.41e-06  -
+  unit-int32               avg   401.3W  %lim  36.5   40C  clk 2032  edp 4.051e-05  edpp 1.287e-08  -
+  unit-smem                avg   499.2W  %lim  45.4   42C  clk 2032  edp 0.0001507  edpp 8.279e-08  -
+  unit-atomic              avg   225.8W  %lim  20.5   35C  clk 2032  edp 0.00302  edpp 1.105e-05  -
+  unit-tensor-wmma         avg   443.5W  %lim  40.3   41C  clk 2032  edp 4.199e-05  edpp 1.295e-08  -
+[22:11:47] attribution: pairs (for the interaction terms)
+  unit-fma+int32           avg   367.5W  %lim  33.4   39C  clk 2032  edp 0.0003212  edpp 3.004e-07  -
+  unit-fma+sfu             avg   400.5W  %lim  36.4   40C  clk 2032  edp 0.0008358  edpp 1.208e-06  -
+  unit-fma+dram            avg   719.1W  %lim  65.4   44C  clk 2032  edp 0.003515  edpp 7.769e-06  -
+  unit-dram+l2             avg   802.0W  %lim  72.9   46C  clk 2032  edp 0.00274  edpp 5.067e-06  -
+  unit-fma+smem            avg   416.1W  %lim  37.8   43C  clk 2032  edp 0.0004203  edpp 4.226e-07  -
+  unit-four-way            avg   364.6W  %lim  33.1   39C  clk 2032  edp 0.0005471  edpp 6.704e-07  -
+[22:14:14] overshoot against a lowered cap
+  over-500w-5ms        cap  500 W  peak   525.5 W  =  105.1% of cap  OVER LIMIT
+  over-500w-50ms       cap  500 W  peak   708.0 W  =  141.6% of cap  OVER LIMIT
+  over-500w-500ms      cap  500 W  peak   716.6 W  =  143.3% of cap  OVER LIMIT
+  over-700w-20ms       cap  700 W  peak   853.5 W  =  121.9% of cap  OVER LIMIT
+[22:17:13] ramp shapes
+  ramp none    swing  853.5 W  max step  823.5 W/sample
+  ramp linear  swing  847.6 W  max step  822.0 W/sample
+  ramp exp     swing  849.5 W  max step  823.3 W/sample
+[22:18:57] locked clocks (boost-off, reproducibility)
+  locked-clocks            avg  1038.4W  %lim  94.4   55C  clk 2032  edp 0.00026  edpp 1.301e-07  -
+[22:19:22] ALL DONE
+14M	/tmp/batch3

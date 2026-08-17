@@ -68,8 +68,17 @@ cmd_deploy() {
 
     local body
     body=$(python3 - "$offer" "$gputype" "$region" "$count" "$pub" "$startup" <<'PY'
-import json,sys
+import json,sys,os
 offer,gputype,region,count,pub,startup = sys.argv[1:7]
+# SPOT by default. That was the wrong call before campaign.sh existed - a
+# reclamation cost a whole batch. With per-rung .done markers and a
+# continuous drain, a reclamation now costs at most the single rung in
+# flight, which for a 20-40s rung is nothing against roughly half price.
+#
+# Use DEDICATED when an interruption costs more than money: a multi-GPU node
+# booking that is hard to re-obtain, or a long single rung that cannot be
+# chunked. Set GPL_INSTANCE_TYPE=DEDICATED for those.
+itype = os.environ.get("GPL_INSTANCE_TYPE", "SPOT").upper()
 print(json.dumps({
   "provider": "spheron-ai",
   "offerId": offer,
@@ -77,7 +86,7 @@ print(json.dumps({
   "gpuCount": int(count),
   "region": region,
   "operatingSystem": "ubuntu-22.04",
-  "instanceType": "DEDICATED",   # never SPOT for a measurement run
+  "instanceType": itype,
   "ssh_public_key": pub,
   "name": "gpu-power-lab",
   "cloudInit": {
@@ -95,7 +104,11 @@ print(json.dumps({
 PY
 )
     echo "==> deploying $count x $gputype ($offer) in $region"
-    echo "    DEDICATED, billed hourly. Terminate when done:  $0 terminate"
+    echo "    ${GPL_INSTANCE_TYPE:-SPOT}, billed hourly. Terminate when done:  $0 terminate"
+    if [ "${GPL_INSTANCE_TYPE:-SPOT}" = "SPOT" ]; then
+        echo "    Spot: run campaigns via scripts/campaign.sh and keep"
+        echo "    scripts/drain.sh running, or a reclamation costs the batch."
+    fi
     read -r -p "    proceed? [y/N] " ok
     [ "$ok" = "y" ] || { echo "aborted"; exit 1; }
 

@@ -1,0 +1,13 @@
+{
+ "phase": "forward",
+ "iters": 449,
+ "seconds": 55.371,
+ "tokens": 3678208,
+ "tokens_per_s": 66428.6,
+ "model_tflops": 1034.2,
+ "params_b": 7.78,
+ "batch": 2,
+ "seqlen": 4096,
+ "dtype": "bf16",
+ "peak_mem_gb": 16.8
+}
