@@ -26,30 +26,60 @@ money on this project.
 
 | Family | Compute capability | Parts | Tensor core generation |
 |---|---|---|---|
-| Datacenter Blackwell | `sm_100` **[?]** | B100, B200 | 5th gen, tensor memory |
-| Blackwell Ultra | `sm_103` **[?]** | B300, GB300 | 5th gen, tensor memory |
-| Consumer / workstation | `sm_120` **[?]** | RTX 5090, RTX PRO 6000 | Tensor cores without the datacenter tensor-memory path |
+| Datacenter Blackwell | `sm_100` | B100, B200 **[?]** | 5th gen, tensor memory |
+| Blackwell Ultra | `sm_103` | B300, GB300 **[?]** | 5th gen, tensor memory |
+| Consumer / workstation | `sm_120` | RTX 5090, RTX PRO 6000 **[?]** | Tensor cores without the datacenter tensor-memory path |
+
+The compute capabilities themselves are **[V]** — `sm_100`, `sm_103`,
+`sm_110`, `sm_120`, `sm_121` and their `f`/`a` variants are all in
+nvcc's allowed-target list. The *product* mapping in the middle column
+is still **[?]**: confirm against NVIDIA's GPU compute-capability table,
+or just read it off the device at T1/T2.
 
 **Practical consequence for us:** the tensor-core inner loop that we
 expect to dominate power on B300 cannot be developed or validated on a
 5090. Two backends, one interface. See `TESTPLAN.md`.
 
-### Arch-specific target suffixes **[?]**
+### Target suffixes: baseline, `f`, and `a` **[V]**
 
-Family-specific instructions — including, we believe, the 5th-gen
-tensor core instructions — require an *architecture-specific* target
-rather than the plain compute capability: `sm_100a` / `sm_103a` /
-`sm_120a` rather than `sm_100` / `sm_103` / `sm_120`. Code compiled for
-the plain target will not have access to them, and PTX built for an
-`a` target is not forward-portable to later architectures the way
-ordinary PTX is.
+**Verified** against the PTX ISA guide §11.1.2 (`.target`) and the CUDA
+Programming Guide §5.1.2 (v13.3). There are *three* target classes, not
+two — the `f` family targets were the piece we did not know about:
 
-**Verify first.** This affects our CMake flags directly: if it is
-right, the fat binary needs both the portable and the arch-specific
-variants, and a build that "compiles fine" for `sm_103` may silently
-lack the very instructions the power virus depends on. Check against
-the CUDA Programming Guide for our pinned toolkit before trusting
-`TESTPLAN.md`'s T0 gate.
+| Target | Meaning | Portability |
+|---|---|---|
+| `sm_XY` | Baseline feature set | Onion-layer: runs on later generations |
+| `sm_XYf` | **Family**-specific features | Runs only on devices in the same family, that generation or later |
+| `sm_XYa` | **Architecture**-specific features | Runs *only* on that exact compute capability |
+
+Exact wording from the PTX guide: *"Target architectures with suffix
+'a' … do not follow the onion layer model. Therefore, PTX code
+generated for such targets cannot be run on later generation devices."*
+And: *"Target architectures with suffix 'f' … can run only on later
+generation devices in the same family."*
+
+Declared families **[V]**: `sm_10x` = {`sm_100f`, `sm_103f`, future
+`sm_10x`}; `sm_11x` = {`sm_110f`, `sm_101f`}; `sm_12x` = {`sm_120f`,
+`sm_121f`}. Note `sm_101` was renamed to `sm_110` from PTX ISA 9.0.
+
+ptxas compile rules **[V]**, from the nvcc guide §4.2.9.1.13:
+
+> PTX for `.target sm_XY` can be compiled to all GPU targets `sm_MN`,
+> `sm_MNa`, `sm_MNf` where MN >= XY. PTX for `.target sm_XYf` can be
+> compiled to GPU targets `sm_XZ`, `sm_XZf`, `sm_XZa` where Z >= Y and
+> `sm_XY` and `sm_XZ` belong in same family. PTX with `.target sm_XYa`
+> can only be compiled to GPU target `sm_XYa`.
+
+**The finding that matters: `sm_100f` covers both B200 and B300.**
+Because 10.0 and 10.3 are in the same family, one family-target build
+gets the 5th-gen tensor core on both parts — we do not need separate
+arch-specific builds just to span the datacenter line. We still need
+`sm_103a` for the handful of MMA kinds excluded from family targets
+(see §3).
+
+Applied in `runner/CMakeLists.txt`: `sm_120a`, `sm_100f`, `sm_100a`,
+`sm_103a`, set through explicit `-gencode` rather than
+`CMAKE_CUDA_ARCHITECTURES` so the suffixes work across CMake versions.
 
 ---
 
@@ -87,37 +117,82 @@ not by the units themselves. This is the central tension in the
 
 ---
 
-## 3. Tensor cores and tensor memory (`tcgen05`) **[?]**
+## 3. Tensor cores and tensor memory (`tcgen05`) **[V]**
 
-The 5th-generation tensor core on datacenter Blackwell introduces a
-dedicated **tensor memory (TMEM)** as the accumulator/operand store,
-distinct from the register file, along with a new instruction family
-(referred to as `tcgen05.*` in PTX).
+Verified against PTX ISA §9.7.17, "TensorCore 5th Generation Family
+Instructions". This section was the project's biggest open question and
+the answer is favourable.
 
-What we believe matters for us:
+### Tensor memory (TMEM) **[V]**
 
-- MMA operations are issued against TMEM rather than accumulating in
-  registers, which changes register pressure characteristics
-  substantially versus Hopper's `wgmma`.
-- The operation is **asynchronous** and often **single-thread-issued**
-  on behalf of a larger group, rather than warp-collective in the way
-  earlier `mma.sync` was.
-- Some shapes operate across a **CTA pair** — two cooperating thread
-  blocks in a cluster — rather than a single block.
+Dedicated on-chip memory for tensor core operations, separate from the
+register file. On `sm_100a`/`sm_100f`: **512 columns × 128 lanes per
+CTA, 32 bits per cell** — 256 KB per CTA. Addresses are 32-bit, packed
+as lane index in the high half and column index in the low half.
 
-Each of these has a direct consequence for a power virus: if the MMA
-is asynchronous and issued by one thread, then **the issue-bandwidth
-objection above is weaker than it first appears** — a single thread can
-keep the tensor core busy while other warps saturate the FMA pipe and
-the memory path. That would make a mixed virus much more effective than
-on earlier architectures, and it is the single most important thing on
-this page to verify, because the whole `--mix-*` hypothesis rests on
-it.
+Allocation rules **[V]**:
 
-**To verify:** exact PTX instruction names and shapes for our toolkit;
-TMEM allocation and its occupancy cost; whether the CTA-pair
-requirement constrains our launch geometry; what the compiler emits
-from CUTLASS-style code versus hand-written PTX.
+- Dynamically allocated, **by a single warp**, via `tcgen05.alloc`.
+- Allocation granularity is **32 columns**, and the count must be a
+  **power of two**. Allocating a column allocates all 128 lanes.
+- Everything allocated must be explicitly deallocated before the kernel
+  exits, or behaviour is undefined.
+- `tcgen05.ld`/`st` from one warp reach only **a quarter** of the CTA's
+  TMEM, so a full warpgroup is needed to cover it.
+
+### Issue granularity — the important one **[V]**
+
+From PTX ISA Table 49:
+
+| Operation | `.cta_group` | Who issues |
+|---|---|---|
+| `.mma`, `.cp`, `.shift`, `.commit` | `::1` | **A single thread** in the CTA initiates the operation |
+| `.mma`, `.cp`, `.shift`, `.commit` | `::2` | A single thread from the CTA pair; the peer CTA must be active and not exited |
+| `.alloc`, `.dealloc`, `.relinquish_alloc_permit` | `::1` | A single warp |
+| `.alloc`, … | `::2` | Two warps, one per CTA, collectively |
+| `.ld`, `.st`, `.wait` | n/a | Per warp, quarter of TMEM each |
+
+And from §9.7.17.6.1, `.mma`, `.cp`, `.shift`, `.ld` and `.st` are
+**asynchronous**; `.alloc`, `.dealloc`, `.fence`, `.wait` and `.commit`
+are synchronous.
+
+**This confirms the hypothesis the whole `--mix-*` design rests on.**
+A single thread issues an async MMA that then runs on the tensor core
+without consuming further issue slots. The issue-bandwidth objection in
+`DESIGN.md` is therefore much weaker on Blackwell than on earlier
+architectures: one thread can keep the tensor core saturated while
+other warps in the same CTA hammer the FMA pipe and stream from HBM.
+Mixing units is not fighting for issue bandwidth the way it would on
+Hopper — **the mixed-unit power virus is a coherent design**, and
+warp specialization is the natural way to build it.
+
+### MMA target requirements **[V]**
+
+`tcgen05.mma` is **not in the baseline feature set**. Per its Target ISA
+Notes it is supported on:
+
+- `sm_100a`, `sm_110a` (formerly `sm_101a`), and by the family rule
+  `sm_103a`;
+- `sm_100f` or higher in the same family, from **PTX ISA 8.8** — but
+  **excluding certain kinds**: `.kind::i8` on most shapes, and
+  `.kind::mxf4` / `.kind::mxf4nvf4` on others.
+
+Two direct consequences:
+
+1. A build targeting plain `sm_100`/`sm_103` compiles cleanly and
+   contains **no tcgen05 at all**. This is exactly the silent failure
+   the T0 gate exists to catch.
+2. **FP4 (`mxf4`/`mxf4nvf4`) needs the arch-specific target.** If the
+   virus wants the lowest-precision formats — and §5 argues they are
+   worth measuring — then `sm_103a` is required for B300, not just
+   `sm_100f`. Both are in our gencode list.
+
+### Still to verify
+
+Exact MMA shapes and the descriptor formats (§9.7.17.4) we will need to
+hand-build; TMEM allocation's practical effect on occupancy; whether to
+hand-write PTX or lean on CUTLASS's Blackwell kernels for the inner
+loop.
 
 ---
 
@@ -214,21 +289,29 @@ Blackwell. Decide with data from T1b, not now.
 
 ---
 
-## 8. Open items to verify
+## 8. Open items
 
-Ordered by how much they would change the design:
+**Resolved 2026-08-17** (PTX ISA v9.x, nvcc guide, Programming Guide
+v13.3, all via docs.nvidia.com):
 
-1. `tcgen05` semantics — async, single-thread issue, CTA-pair shapes.
-   The `--mix-*` hypothesis depends on it (§3).
-2. `sm_100a` / `sm_103a` arch-specific targets and what our CMake must
-   emit (§1).
-3. FP4/FP6 availability from plain CUDA C++ versus requiring CUTLASS or
-   hand-written PTX (§5).
-4. Whether datacenter Blackwell FP64 is as weak as assumed (§2).
-5. TMEM capacity and allocation rules, and their effect on occupancy
-   (§3).
-6. Actual DVFS control-loop behaviour near the cap on Blackwell (§6).
-7. B300 board TDP — our scanner records 1200 W for
+- ~~`tcgen05` semantics~~ → **[V]** async, single-thread issue,
+  CTA-pair optional. The mixed-unit virus is a coherent design (§3).
+- ~~arch-specific targets~~ → **[V]** three classes, and `sm_100f`
+  spans B200 and B300. Applied to CMake (§1).
+- ~~TMEM capacity and allocation rules~~ → **[V]** 512×128×32-bit per
+  CTA, 32-column power-of-two allocation by a single warp (§3).
+
+Still open, ordered by how much they would change the design:
+
+1. Exact `tcgen05.mma` shapes and descriptor construction — and whether
+   to hand-write PTX or start from CUTLASS's Blackwell kernels (§3).
+2. FP4/FP6 reachability from CUDA C++ versus requiring PTX/CUTLASS,
+   now knowing `mxf4` needs an `a` target (§5).
+3. Whether datacenter Blackwell FP64 is as weak as assumed (§2). The
+   Programming Guide's arithmetic-throughput table moved in the v13.3
+   restructure; find it or measure directly at T2.
+4. Actual DVFS control-loop behaviour near the cap on Blackwell (§6).
+5. B300 board TDP — our scanner records 1200 W for
    `p6-b300.48xlarge`; confirm against NVIDIA's specification and
    against `nvmlDeviceGetPowerManagementLimitConstraints` on the real
    part.

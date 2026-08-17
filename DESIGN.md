@@ -86,7 +86,7 @@ implies for the experiment:
 
 | Mechanism | Consequence for reaching TDP |
 |---|---|
-| **Issue bandwidth** — a warp scheduler issues one instruction per cycle per scheduler | Units cannot all be driven at peak simultaneously from one instruction stream; feeding the tensor core *and* the FMA pipe means each gets a fraction of issue slots |
+| **Issue bandwidth** — a warp scheduler issues one instruction per cycle per scheduler | Weaker on Blackwell than expected: `tcgen05.mma` is asynchronous and issued by a *single thread* (verified, see `docs/blackwell-cuda-notes.md` §3), so one thread can keep the tensor core busy while other warps drive the FMA pipe and memory. Issue bandwidth is a real constraint for the non-tensor units but does not block mixing |
 | **DVFS** — the controller drops clocks as power approaches the cap | Approaching the ceiling is self-limiting: the closer you get, the lower the frequency, so power converges below the cap rather than hitting it |
 | **Datapath exclusivity** — operands come from register file, shared memory, or tensor memory | Kernels that saturate one operand path starve the others; the "mix" that maximizes power is not the mix that maximizes any one unit |
 | **Memory power is traffic-proportional** | HBM only draws its share under genuine bandwidth load, which a register-resident GEMM deliberately avoids — the two goals fight |
@@ -98,7 +98,8 @@ Note the tension this creates with the `powervirus` design: mixing
 units raises total power *only* if the units genuinely run concurrently
 rather than stealing issue slots and operand bandwidth from each other.
 Whether the mix beats a pure tensor-core loop is an empirical question,
-not a given — and measuring it is the point.
+not a given — and measuring it is the point. The verified `tcgen05`
+issue model makes the mix plausible; it does not make it true.
 
 ### The real O1 deliverable: a power attribution breakdown
 
