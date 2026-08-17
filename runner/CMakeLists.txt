@@ -89,6 +89,7 @@ add_executable(gpu-power-runner
     src/workload_memstream.cu
     src/workload_powervirus.cu
     src/gemm_lt.cu
+    src/workload_nccl.cu
     src/probe.c
     src/workload_observe.c
     src/workload_fft.c
@@ -121,5 +122,20 @@ target_compile_options(gpu-power-runner PRIVATE
     $<$<COMPILE_LANGUAGE:CUDA>:--ptxas-options=-v>
     $<$<AND:$<CONFIG:Release>,$<COMPILE_LANGUAGE:CUDA>>:-O3>
 )
+
+# --- NCCL ------------------------------------------------------------------
+# Optional: the multi-GPU rungs need it, everything else does not. Building
+# without it leaves --op nccl reporting a clear "built without NCCL" rather
+# than failing the whole build on a single-GPU box.
+find_library(NCCL_LIB nccl HINTS ${CUDAToolkit_LIBRARY_DIR} /usr/lib/x86_64-linux-gnu)
+find_path(NCCL_INCLUDE nccl.h HINTS ${CUDAToolkit_INCLUDE_DIRS} /usr/include)
+if(NCCL_LIB AND NCCL_INCLUDE)
+    message(STATUS "NCCL found: ${NCCL_LIB}")
+    target_compile_definitions(gpu-power-runner PRIVATE GPL_HAVE_NCCL)
+    target_include_directories(gpu-power-runner PRIVATE ${NCCL_INCLUDE})
+    target_link_libraries(gpu-power-runner PRIVATE ${NCCL_LIB})
+else()
+    message(STATUS "NCCL not found — --op nccl will report it is unavailable")
+endif()
 
 install(TARGETS gpu-power-runner RUNTIME DESTINATION bin)

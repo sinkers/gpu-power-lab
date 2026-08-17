@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "rung_id": "powervirus-bf16-8192-s1-2026-08-17T20:20:50.935Z",
+  "invocation": {
+    "op": "powervirus", "precision": "bf16", "size": 8192, "streams": 1,
+    "warmup_sec": 10.000, "steady_sec": 1800.000, "sample_hz": 100, "device": 0
+  },
+  "device": {
+    "uuid": "GPU-f4e8a836-df39-ac5b-7298-9ae3a748697d", "name": "NVIDIA B300 SXM6 AC", "driver": "610.57.04",
+    "cuda_runtime": "13.0", "vbios": "97.10.64.00.0C", "pci_bus_id": "00000000:FE:00.0",
+    "power_limit_w": 1100.00
+  },
+  "timing": {
+    "start_utc": "2026-08-17T20:20:50.935Z", "warmup_ms": 10000.00, "steady_ms": 1800003.38, "wall_ms": 1810020.50
+  },
+  "compute": {
+    "iterations": 3599600, "tflops_measured": 0.0000,
+    "tflops_theoretical": null, "efficiency": null
+  },
+  "power": {
+    "avg_w": 1038.538, "peak_w": 1053.565, "p50_w": 1038.608, "p95_w": 1040.650, "p99_w": 1041.030,
+    "energy_j": 1868954.431,
+    "peak_instant_w": 1057.786, "sample_source": "nvml_usage+instant",
+    "tdp_w": 1100.00, "default_limit_w": 1100.00,
+    "enforced_limit_w": 1100.00, "max_limit_w": 1100.00,
+    "pct_of_tdp": 94.41, "pct_of_enforced_limit": 94.41
+  },
+  "efficiency": {
+    "mode": "fixed_time", "work_unit": "iteration",
+    "work_done": 3599600.000000, "delay_s": 1800.0034, "energy_j": 1868954.431,
+    "energy_per_work_j": 0.519212, "delay_per_work_s": 0.000500057,
+    "edp_j_s": 0.000259635, "edpp_j_s2": 0.000000129832, "perf_per_watt": 1.925567
+  },
+  "transient": {
+    "duty_on_ms": 0.000, "duty_off_ms": 0.000,
+    "power_violation_us": 2125969088,
+    "energy_counter_j": 1868954.431, "energy_integrated_j": 1869363.422,
+    "energy_gap_pct": -0.022,
+    "sample_hz_requested": 100, "sample_hz_achieved": 100.0
+  },
+  "thermal": {
+    "avg_c": 55.50, "peak_c": 56.00, "throttled_sec": 0.000
+  },
+  "throttle": {
+    "mask": 0, "any_throttled": false, "reasons": []
+  },
+  "utilization": {
+    "sm_avg_pct": 100.00, "mem_avg_pct": 45.00
+  },
+  "clocks": {
+    "sm_avg_mhz": 2031.6, "sm_min_mhz": 1942.0, "sm_max_mhz": 2032.0,
+    "mem_avg_mhz": 3996.0, "sm_boost_dropped": false
+  },
+  "samples_written": 180010,
+  "result": "ok"
+}

@@ -179,6 +179,9 @@ int main(int argc, char **argv) {
         case GPL_OP_OBSERVE:
             wrc = gpl_workload_observe_run(&wctx);
             break;
+        case GPL_OP_NCCL:
+            wrc = gpl_workload_nccl_run(&wctx);
+            break;
         default:
             wctx.error = "unknown op";
             wrc = -1;

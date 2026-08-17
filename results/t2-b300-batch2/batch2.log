@@ -1,0 +1,51 @@
+[20:19:16] idle floor (60s, nothing running)
+  idle                   avg   183.5W peak   189.5W  %lim  16.7   33/ 33C  edp 183.6  edpp 183.6  hz 100  no-throttle
+[20:20:48] THERMAL SOAK — 30 min, tensor-only bf16, fixed work. Go and do something else.
+  soak-30min             avg  1038.5W peak  1053.6W  %lim  94.4   56/ 56C  edp 0.0002596  edpp 1.298e-07  hz 100  no-throttle
+[20:51:01] soak done
+[20:51:01] ladder, with traces
+  tensor-only-bf16       avg  1059.8W peak  1088.3W  %lim  96.3   55/ 55C  edp 0.0002653  edpp 1.328e-07  hz 100  sw_power_cap
+  tensor-only-fp16       avg   989.5W peak  1025.8W  %lim  90.0   53/ 53C  edp 0.000273  edpp 1.435e-07  hz 100  no-throttle
+  dram-only              avg   791.2W peak   803.8W  %lim  71.9   45/ 45C  edp 0.008654  edpp 2.865e-05  hz 100  no-throttle
+  fma-only               avg   417.3W peak   426.1W  %lim  37.9   40/ 41C  edp 0.0006115  edpp 7.407e-07  hz 100  no-throttle
+  tensor-only-wmma       avg   458.2W peak   470.1W  %lim  41.7   40/ 41C  edp 4.142e-05  edpp 1.247e-08  hz 100  no-throttle
+  mix-all-cublas         avg   761.2W peak   776.2W  %lim  69.2   44/ 45C  edp 0.006778  edpp 2.023e-05  hz 100  no-throttle
+[20:53:49] duty period sweep
+  duty-1ms         usage  563.1- 1085.8 (swing  522.7)  instant  523.3- 1088.3 (swing  565.0)  peak/cap  98.9%
+  duty-5ms         usage  527.2- 1085.7 (swing  558.5)  instant  187.7- 1089.5 (swing  901.7)  peak/cap  99.0%
+  duty-20ms        usage  533.7- 1086.4 (swing  552.7)  instant  189.7- 1080.7 (swing  891.0)  peak/cap  98.8%
+  duty-100ms       usage  453.4- 1085.7 (swing  632.3)  instant  189.7- 1089.5 (swing  899.8)  peak/cap  99.0%
+  duty-500ms       usage  508.9- 1085.1 (swing  576.2)  instant  185.8- 1083.7 (swing  897.9)  peak/cap  98.6%
+  duty-2s          usage  184.8- 1086.0 (swing  901.1)  instant  183.9- 1086.4 (swing  902.5)  peak/cap  98.8%
+[20:58:38] ALL DONE
+drwxrwxrwt 14 root   root      12288 Aug 17 20:32 ..
+-rw-r--r--  1 root   root       2104 Aug 17 20:52 rung-dram-only.json
+-rw-r--r--  1 root   root     691953 Aug 17 20:52 rung-dram-only.ndjson
+-rw-r--r--  1 root   root       2132 Aug 17 20:57 rung-duty-100ms.json
+-rw-r--r--  1 root   root     909771 Aug 17 20:57 rung-duty-100ms.ndjson
+-rw-r--r--  1 root   root       2126 Aug 17 20:54 rung-duty-1ms.json
+-rw-r--r--  1 root   root    1237924 Aug 17 20:54 rung-duty-1ms.ndjson
+-rw-r--r--  1 root   root       2127 Aug 17 20:56 rung-duty-20ms.json
+-rw-r--r--  1 root   root     888148 Aug 17 20:56 rung-duty-20ms.ndjson
+-rw-r--r--  1 root   root       2136 Aug 17 20:58 rung-duty-2s.json
+-rw-r--r--  1 root   root    1236256 Aug 17 20:58 rung-duty-2s.ndjson
+-rw-r--r--  1 root   root       2132 Aug 17 20:57 rung-duty-500ms.json
+-rw-r--r--  1 root   root     982402 Aug 17 20:57 rung-duty-500ms.ndjson
+-rw-r--r--  1 root   root       2125 Aug 17 20:55 rung-duty-5ms.json
+-rw-r--r--  1 root   root    1244831 Aug 17 20:55 rung-duty-5ms.ndjson
+-rw-r--r--  1 root   root       2100 Aug 17 20:52 rung-fma-only.json
+-rw-r--r--  1 root   root     685478 Aug 17 20:52 rung-fma-only.ndjson
+-rw-r--r--  1 root   root       2095 Aug 17 20:20 rung-idle.json
+-rw-r--r--  1 root   root    1769029 Aug 17 20:20 rung-idle.ndjson
+-rw-r--r--  1 root   root       2102 Aug 17 20:53 rung-mix-all-cublas.json
+-rw-r--r--  1 root   root     692827 Aug 17 20:53 rung-mix-all-cublas.ndjson
+-rw-r--r--  1 root   root       2144 Aug 17 20:51 rung-soak-30min.json
+-rw-r--r--  1 root   root   50566519 Aug 17 20:51 rung-soak-30min.ndjson
+-rw-r--r--  1 root   root       2134 Aug 17 20:51 rung-tensor-only-bf16.json
+-rw-r--r--  1 root   root     694219 Aug 17 20:51 rung-tensor-only-bf16.ndjson
+-rw-r--r--  1 root   root       2118 Aug 17 20:51 rung-tensor-only-fp16.json
+-rw-r--r--  1 root   root     690122 Aug 17 20:51 rung-tensor-only-fp16.ndjson
+-rw-r--r--  1 root   root       2100 Aug 17 20:53 rung-tensor-only-wmma.json
+-rw-r--r--  1 root   root     685720 Aug 17 20:53 rung-tensor-only-wmma.ndjson
+-rw-r--r--  1 root   root       2082 Aug 17 20:19 rung-warm.json
+61M	/tmp/batch2

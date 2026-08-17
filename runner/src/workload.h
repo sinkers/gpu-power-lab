@@ -45,6 +45,10 @@ int gpl_workload_fft_run(gpl_workload_ctx_t *ctx);
  * idle floor. */
 int gpl_workload_observe_run(gpl_workload_ctx_t *ctx);
 
+/* NCCL collectives across every visible GPU. Measures what the fabric costs
+ * and what a synchronised collective does to node-level power. */
+int gpl_workload_nccl_run(gpl_workload_ctx_t *ctx);
+
 /* Mixed-unit maximum-power workload (O1). Warp-specialized: tensor cores,
  * FFMA chains and DRAM streaming run concurrently on the same SM, in the
  * ratio given by the --mix-* weights. Honours --duty-* and --iters. */

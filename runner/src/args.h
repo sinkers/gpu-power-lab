@@ -15,6 +15,7 @@ typedef enum {
     GPL_OP_MEMSTREAM,
     GPL_OP_POWERVIRUS,
     GPL_OP_OBSERVE,
+    GPL_OP_NCCL,
 } gpl_op_t;
 
 /* Declared at file scope, not inside gpl_args_t: an unnamed enum nested in a
@@ -101,6 +102,15 @@ typedef struct {
     double     power_limit_w;
     bool       lock_clocks;        /* pin SM clock (boost-off profile) */
     bool       probe;              /* capability probe, then exit */
+
+    /* --- multi-GPU: what the fabric costs, and what a collective does to
+     * the shape of a node's power draw. A collective is a synchronised event
+     * across every GPU at once, which is the in-phase swing the duty-cycle
+     * work was trying to synthesise - real training already produces it. */
+    const char *nccl_op;           /* allreduce|allgather|reducescatter|
+                                      broadcast|alltoall|sendrecv */
+    long long   nccl_bytes;        /* message size per rank */
+    int         nccl_devices;      /* 0 = every visible GPU */
 } gpl_args_t;
 
 /* Fill args with defaults. */

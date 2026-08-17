@@ -36,6 +36,9 @@ void gpl_args_defaults(gpl_args_t *a) {
     a->power_limit_w = 0.0;
     a->lock_clocks = false;
     a->probe = false;
+    a->nccl_op = "allreduce";
+    a->nccl_bytes = 0;
+    a->nccl_devices = 0;
 }
 
 const char *gpl_op_name(gpl_op_t op) {
@@ -45,6 +48,7 @@ const char *gpl_op_name(gpl_op_t op) {
         case GPL_OP_MEMSTREAM: return "memstream";
         case GPL_OP_POWERVIRUS: return "powervirus";
         case GPL_OP_OBSERVE:    return "observe";
+        case GPL_OP_NCCL:       return "nccl";
         default:               return "unknown";
     }
 }
@@ -69,6 +73,7 @@ static int parse_op(const char *s, gpl_op_t *out) {
     else if (!strcmp(s, "memstream")) *out = GPL_OP_MEMSTREAM;
     else if (!strcmp(s, "powervirus")) *out = GPL_OP_POWERVIRUS;
     else if (!strcmp(s, "observe"))    *out = GPL_OP_OBSERVE;
+    else if (!strcmp(s, "nccl"))       *out = GPL_OP_NCCL;
     else return -1;
     return 0;
 }
@@ -91,7 +96,8 @@ static void usage(FILE *f, const char *argv0) {
         "Usage: %s [options]\n"
         "\n"
         "Workload:\n"
-        "  --op OP                sgemm | fft | memstream | powervirus | observe\n""                         observe = sample only, drive nothing: for\n""                         measuring an external workload or the idle floor\n"
+        "  --op OP                sgemm | fft | memstream | powervirus | observe\n"
+        "                         | nccl\n""                         observe = sample only, drive nothing: for\n""                         measuring an external workload or the idle floor\n"
         "                                                           (default: sgemm)\n"
         "  --precision PREC       fp32 | tf32 | fp16 | bf16 | fp8 | fp64 | int8 | fp4\n"
         "                                                           (default: fp32)\n"
@@ -141,6 +147,12 @@ static void usage(FILE *f, const char *argv0) {
         "  --lock-clocks          pin the SM clock (boost-off, reproducible)\n"
         "  --probe                report what this platform permits, then exit\n"
         "\n"
+        "Multi-GPU (--op nccl):\n"
+        "  --nccl-op OP           allreduce | allgather | reducescatter |\n"
+        "                         broadcast | alltoall | sendrecv\n"
+        "  --nccl-bytes N         message size per rank    (default: 256 MiB)\n"
+        "  --nccl-devices N       how many GPUs            (default: all)\n"
+        "\n"
         "  -h, --help             show this help and exit\n",
         argv0);
 }
@@ -179,6 +191,9 @@ int gpl_args_parse(int argc, char **argv, gpl_args_t *a) {
         {"power-limit",       required_argument, 0, 1010},
         {"lock-clocks",       no_argument,       0, 1011},
         {"probe",             no_argument,       0, 1008},
+        {"nccl-op",           required_argument, 0, 1019},
+        {"nccl-bytes",        required_argument, 0, 1020},
+        {"nccl-devices",      required_argument, 0, 1021},
         {"help",              no_argument,       0, 'h'},
         {0, 0, 0, 0}
     };
@@ -233,6 +248,9 @@ int gpl_args_parse(int argc, char **argv, gpl_args_t *a) {
             case 1010: a->power_limit_w = atof(optarg); break;
             case 1011: a->lock_clocks = true; break;
             case 1008: a->probe = true; break;
+            case 1019: a->nccl_op = optarg; break;
+            case 1020: a->nccl_bytes = atoll(optarg); break;
+            case 1021: a->nccl_devices = atoi(optarg); break;
             case 'h': usage(stdout, argv[0]); return 1;
             default:  usage(stderr, argv[0]); return 2;
         }
@@ -240,6 +258,7 @@ int gpl_args_parse(int argc, char **argv, gpl_args_t *a) {
 
     if (a->probe) return 0;   /* probe ignores workload validation */
     if (a->op == GPL_OP_OBSERVE) return 0;  /* nothing to configure */
+    if (a->op == GPL_OP_NCCL) return 0;     /* validated in the workload */
 
     if (a->size < 16) { fprintf(stderr, "--size too small\n"); return 2; }
     if (a->mix_tensor < 0 || a->mix_fma < 0 || a->mix_dram < 0 ||
