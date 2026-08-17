@@ -89,6 +89,7 @@ add_executable(gpu-power-runner
     src/workload_memstream.cu
     src/workload_powervirus.cu
     src/probe.c
+    src/workload_observe.c
     src/workload_fft.c
     src/workload_util.c
     src/summary.c

@@ -14,6 +14,7 @@ typedef enum {
     GPL_OP_FFT,
     GPL_OP_MEMSTREAM,
     GPL_OP_POWERVIRUS,
+    GPL_OP_OBSERVE,
 } gpl_op_t;
 
 typedef enum {

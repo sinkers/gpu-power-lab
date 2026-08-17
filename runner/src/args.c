@@ -35,6 +35,7 @@ const char *gpl_op_name(gpl_op_t op) {
         case GPL_OP_FFT:       return "fft";
         case GPL_OP_MEMSTREAM: return "memstream";
         case GPL_OP_POWERVIRUS: return "powervirus";
+        case GPL_OP_OBSERVE:    return "observe";
         default:               return "unknown";
     }
 }
@@ -55,6 +56,7 @@ static int parse_op(const char *s, gpl_op_t *out) {
     else if (!strcmp(s, "fft"))       *out = GPL_OP_FFT;
     else if (!strcmp(s, "memstream")) *out = GPL_OP_MEMSTREAM;
     else if (!strcmp(s, "powervirus")) *out = GPL_OP_POWERVIRUS;
+    else if (!strcmp(s, "observe"))    *out = GPL_OP_OBSERVE;
     else return -1;
     return 0;
 }
@@ -74,7 +76,7 @@ static void usage(FILE *f, const char *argv0) {
         "Usage: %s [options]\n"
         "\n"
         "Workload:\n"
-        "  --op OP                sgemm | fft | memstream | powervirus\n"
+        "  --op OP                sgemm | fft | memstream | powervirus | observe\n""                         observe = sample only, drive nothing: for\n""                         measuring an external workload or the idle floor\n"
         "                                                           (default: sgemm)\n"
         "  --precision PREC       fp32 | tf32 | fp16 | bf16 | fp8   (default: fp32)\n"
         "  --size N               square matrix dimension           (default: 4096)\n"
@@ -183,6 +185,7 @@ int gpl_args_parse(int argc, char **argv, gpl_args_t *a) {
     }
 
     if (a->probe) return 0;   /* probe ignores workload validation */
+    if (a->op == GPL_OP_OBSERVE) return 0;  /* nothing to configure */
 
     if (a->size < 16) { fprintf(stderr, "--size too small\n"); return 2; }
     if (a->mix_tensor < 0 || a->mix_fma < 0 || a->mix_dram < 0) {

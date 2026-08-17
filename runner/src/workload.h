@@ -40,6 +40,11 @@ int gpl_workload_memstream_run(gpl_workload_ctx_t *ctx);
 /* Batched 1-D cuFFT C2C workload (FP32, always). */
 int gpl_workload_fft_run(gpl_workload_ctx_t *ctx);
 
+/* Sample-only: drives no GPU work, just runs the phases for the requested
+ * duration. For measuring an external process (training, inference) or the
+ * idle floor. */
+int gpl_workload_observe_run(gpl_workload_ctx_t *ctx);
+
 /* Mixed-unit maximum-power workload (O1). Warp-specialized: tensor cores,
  * FFMA chains and DRAM streaming run concurrently on the same SM, in the
  * ratio given by the --mix-* weights. Honours --duty-* and --iters. */
