@@ -1,0 +1,280 @@
+<title>B300 Power Ceiling</title>
+<style>
+  :root {
+    --ground:#F4F6F5; --surface:#FFFFFF; --surface-sunk:#ECEFEE;
+    --ink:#131A20; --ink-2:#3C4854; --muted:#61707C;
+    --rule:#D5DBDA; --signal:#0A6E9B; --signal-soft:#0A6E9B1A;
+    --oxide:#B4552A; --oxide-soft:#B4552A1A; --ceiling:#131A2073;
+    --serif: Charter,"Bitstream Charter","Iowan Old Style",Cambria,Georgia,serif;
+    --mono: ui-monospace,"SF Mono",SFMono-Regular,"JetBrains Mono",Menlo,Consolas,monospace;
+    --measure:66ch;
+    --step--1:0.815rem; --step-0:1rem; --step-1:1.27rem;
+    --step-2:1.6rem; --step-3:2.1rem; --step-4:2.9rem;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:#0F141A; --surface:#161D25; --surface-sunk:#1D2630;
+      --ink:#E7EDF2; --ink-2:#BDC8D2; --muted:#8B9AA7;
+      --rule:#2A353F; --signal:#2E97BA; --signal-soft:#2E97BA26;
+      --oxide:#C46F3F; --oxide-soft:#C46F3F26; --ceiling:#E7EDF280;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground:#0F141A; --surface:#161D25; --surface-sunk:#1D2630;
+    --ink:#E7EDF2; --ink-2:#BDC8D2; --muted:#8B9AA7;
+    --rule:#2A353F; --signal:#2E97BA; --signal-soft:#2E97BA26;
+    --oxide:#C46F3F; --oxide-soft:#C46F3F26; --ceiling:#E7EDF280;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--ground); color:var(--ink);
+         font-family:var(--serif); font-size:var(--step-0); line-height:1.62;
+         -webkit-font-smoothing:antialiased; }
+  .wrap { max-width:60rem; margin:0 auto;
+          padding:clamp(1.5rem,4vw,4rem) clamp(1.1rem,4vw,2.5rem) 6rem;
+          display:flex; flex-direction:column; gap:3.25rem; }
+  .prose { max-width:var(--measure); display:flex; flex-direction:column; gap:1rem; }
+  p { margin:0; }
+  .eyebrow { font-family:var(--mono); font-size:var(--step--1); letter-spacing:.13em;
+             text-transform:uppercase; color:var(--muted); margin:0; }
+  h1,h2,h3 { margin:0; text-wrap:balance; font-weight:600; line-height:1.14; }
+  h1 { font-size:var(--step-4); letter-spacing:-.018em; }
+  h2 { font-size:var(--step-2); letter-spacing:-.01em; }
+  h3 { font-size:var(--step-1); }
+  header { display:flex; flex-direction:column; gap:1.1rem; }
+  .lede { font-size:var(--step-1); color:var(--ink-2); max-width:54ch; }
+  .specbar { display:flex; flex-wrap:wrap; gap:0 2rem; font-family:var(--mono);
+             font-size:var(--step--1); color:var(--muted);
+             border-top:1px solid var(--rule); border-bottom:1px solid var(--rule);
+             padding:.7rem 0; }
+  .specbar span { white-space:nowrap; }
+  .specbar b { font-weight:500; color:var(--ink-2); }
+  .tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(13.5rem,1fr));
+           gap:1px; background:var(--rule); border:1px solid var(--rule); }
+  .tile { background:var(--surface); padding:1.35rem 1.4rem;
+          display:flex; flex-direction:column; gap:.4rem; }
+  .tile .k { font-family:var(--mono); font-size:var(--step--1); letter-spacing:.1em;
+             text-transform:uppercase; color:var(--muted); }
+  .tile .v { font-family:var(--mono); font-size:var(--step-3); font-weight:600;
+             letter-spacing:-.02em; font-variant-numeric:tabular-nums; line-height:1; }
+  .tile .v.sig { color:var(--signal); } .tile .v.ox { color:var(--oxide); }
+  .tile .n { font-size:var(--step--1); color:var(--muted); line-height:1.45; }
+  figure { margin:0; display:flex; flex-direction:column; gap:1rem; }
+  figcaption { font-size:var(--step--1); color:var(--muted); max-width:var(--measure); }
+  .chart { background:var(--surface); border:1px solid var(--rule);
+           padding:1.5rem 1.4rem 1.1rem; overflow-x:auto; }
+  .bars { display:grid; grid-template-columns:minmax(11rem,auto) 1fr;
+          gap:.42rem 1rem; align-items:center; min-width:32rem; }
+  .blabel { font-family:var(--mono); font-size:var(--step--1); color:var(--ink-2);
+            text-align:right; white-space:nowrap; }
+  .blabel .sub { color:var(--muted); }
+  .ceiling { position:absolute; top:0; bottom:0; width:0; pointer-events:none;
+             border-left:1.5px dashed var(--ceiling); }
+  .track { position:relative; height:1.55rem; background:var(--surface-sunk); }
+  .bar { position:absolute; inset:0 auto 0 0; border-radius:0 4px 4px 0;
+         background:var(--signal); transition:filter 120ms ease; }
+  .bar.alt { background:var(--oxide); }
+  .track:hover .bar { filter:brightness(1.12); }
+  .bval { font-family:var(--mono); font-size:var(--step--1);
+          font-variant-numeric:tabular-nums; color:var(--ink-2);
+          position:absolute; left:calc(100% + .5rem); top:50%;
+          transform:translateY(-50%); white-space:nowrap; }
+  .bar.wide .bval { left:auto; right:.5rem; color:#fff; }
+  .axis { grid-column:2; position:relative; height:1.3rem;
+          border-top:1px solid var(--rule); margin-top:.35rem; }
+  .tick { position:absolute; top:.2rem; transform:translateX(-50%);
+          font-family:var(--mono); font-size:var(--step--1); color:var(--muted);
+          white-space:nowrap; }
+  .tick.cap { color:var(--ink-2); }
+  .legend { display:flex; flex-wrap:wrap; gap:1.1rem; font-family:var(--mono);
+            font-size:var(--step--1); color:var(--ink-2); padding-top:.9rem;
+            margin-top:.6rem; border-top:1px solid var(--rule); }
+  .legend i { display:inline-block; width:.85rem; height:.5rem; border-radius:2px;
+              background:var(--signal); margin-right:.45rem; }
+  .legend i.alt { background:var(--oxide); }
+  .legend i.dash { width:1rem; height:0; border-top:1.5px dashed var(--ceiling);
+                   border-radius:0; }
+  .rangerow { position:relative; height:2.1rem; background:var(--surface-sunk); }
+  .band { position:absolute; top:0; bottom:0; background:var(--signal-soft);
+          border-left:3px solid var(--signal); border-right:3px solid var(--signal); }
+  .band.alt { background:var(--oxide-soft); border-color:var(--oxide); }
+  .bandnum { position:absolute; top:50%; transform:translateY(-50%);
+             font-family:var(--mono); font-size:var(--step--1);
+             font-variant-numeric:tabular-nums; color:var(--ink-2);
+             background:var(--surface); padding:0 .3rem; }
+  .tablewrap { overflow-x:auto; border:1px solid var(--rule); background:var(--surface); }
+  table { border-collapse:collapse; width:100%; font-family:var(--mono);
+          font-size:var(--step--1); }
+  th,td { text-align:right; padding:.5rem .85rem; border-bottom:1px solid var(--rule);
+          white-space:nowrap; }
+  th:first-child, td:first-child { text-align:left; }
+  thead th { color:var(--muted); font-weight:500; letter-spacing:.06em;
+             text-transform:uppercase; position:sticky; top:0; background:var(--surface); }
+  tbody tr:last-child td { border-bottom:0; }
+  tbody tr:hover td { background:var(--surface-sunk); }
+  td.num { font-variant-numeric:tabular-nums; }
+  tr.best td { color:var(--signal); font-weight:600; }
+  .callout { border-left:3px solid var(--oxide); background:var(--surface);
+             padding:1.1rem 1.3rem; display:flex; flex-direction:column; gap:.55rem;
+             max-width:var(--measure); }
+  .callout .eyebrow { color:var(--oxide); }
+  section { display:flex; flex-direction:column; gap:1.3rem; }
+  .divider { border:0; border-top:1px solid var(--rule); margin:0; }
+  ul { margin:0; padding-left:1.15rem; display:flex; flex-direction:column;
+       gap:.5rem; max-width:var(--measure); }
+  li::marker { color:var(--muted); }
+  code { font-family:var(--mono); font-size:.88em; background:var(--surface-sunk);
+         padding:.08em .34em; border-radius:3px; }
+  footer { font-family:var(--mono); font-size:var(--step--1); color:var(--muted);
+           border-top:1px solid var(--rule); padding-top:1rem;
+           display:flex; flex-direction:column; gap:.3rem; }
+  a { color:var(--signal); }
+  a:focus-visible { outline:2px solid var(--signal); outline-offset:2px; }
+  @media (prefers-reduced-motion: reduce) { * { transition:none !important; } }
+</style>
+<div class="wrap">
+  <header>
+    <p class="eyebrow">gpu-power-lab · T2 field report</p>
+    <h1>How close can code push a B300 to its power ceiling?</h1>
+    <p class="lede">Answer: 90.4% of 1100 W, sustained, with the throttle bits never once set — and a single GPU that can be made to swing nearly a kilowatt in 200 milliseconds.</p>
+    <div class="specbar">
+      <span><b>Device</b> NVIDIA B300 SXM6 AC</span>
+      <span><b>Limit</b> 1,100 W</span>
+      <span><b>Driver</b> 610.57.04</span>
+      <span><b>CUDA</b> 13.0</span>
+      <span><b>Rungs</b> 12</span>
+      <span><b>Date</b> 17 Aug 2026</span>
+    </div>
+  </header>
+
+  <div class="tiles">
+    <div class="tile"><span class="k">Best sustained</span><span class="v sig">90.4%</span><span class="n">994.9 W of a 1,100 W cap · tensor-only-bf16. No throttle bit set, so the shortfall is the workload, not the controller.</span></div>
+    <div class="tile"><span class="k">Peak transient</span><span class="v sig">98.2%</span><span class="n">1,080.6 W instantaneous during a 200 ms burst.</span></div>
+    <div class="tile"><span class="k">Controllable swing</span><span class="v ox">881 W</span><span class="n">One GPU, square-waved at 2.5 Hz. Eight in phase is a ~7 kW node step before the uncore.</span></div>
+  </div>
+
+  <hr class="divider">
+
+  <section>
+    <p class="eyebrow">O1 · the ceiling</p>
+    <h2>Twelve ways to burn a Blackwell</h2>
+    <div class="prose"><p>Each rung runs one workload for a 12-second measured window against the enforced 1100 W limit, sampling NVML at 50 Hz. Nothing in this sweep ever set a throttle bit, and clocks stayed flat near 1935 MHz throughout — so every gap below the dashed rule is work the GPU was willing to do and the workload failed to ask for.</p></div>
+    <figure>
+      <div class="chart">
+        <div class="bars">
+        <span class="blabel">tensor-only-bf16</span>
+        <div class="track"><div class="bar wide" style="width:82.98%"><span class="bval">994.9 W</span></div><div class="ceiling" style="left:91.74%"></div></div>
+        <span class="blabel">tensor-only-cublas</span>
+        <div class="track"><div class="bar wide" style="width:82.47%"><span class="bval">988.8 W</span></div><div class="ceiling" style="left:91.74%"></div></div>
+        <span class="blabel">tensor4-dram1-16k</span>
+        <div class="track"><div class="bar wide" style="width:81.47%"><span class="bval">976.8 W</span></div><div class="ceiling" style="left:91.74%"></div></div>
+        <span class="blabel">tensor-16k-s2</span>
+        <div class="track"><div class="bar wide" style="width:80.56%"><span class="bval">966.0 W</span></div><div class="ceiling" style="left:91.74%"></div></div>
+        <span class="blabel">tensor-16k</span>
+        <div class="track"><div class="bar wide" style="width:80.42%"><span class="bval">964.2 W</span></div><div class="ceiling" style="left:91.74%"></div></div>
+        <span class="blabel">dram-only</span>
+        <div class="track"><div class="bar alt wide" style="width:65.03%"><span class="bval">779.7 W</span></div><div class="ceiling" style="left:91.74%"></div></div>
+        <span class="blabel">mix-all-cublas</span>
+        <div class="track"><div class="bar wide" style="width:61.15%"><span class="bval">733.2 W</span></div><div class="ceiling" style="left:91.74%"></div></div>
+        <span class="blabel">mix-t2-f1-cublas</span>
+        <div class="track"><div class="bar wide" style="width:55.98%"><span class="bval">671.2 W</span></div><div class="ceiling" style="left:91.74%"></div></div>
+        <span class="blabel">mix-tensor-fma-cublas</span>
+        <div class="track"><div class="bar wide" style="width:48.53%"><span class="bval">581.8 W</span></div><div class="ceiling" style="left:91.74%"></div></div>
+        <span class="blabel">tensor-only-wmma</span>
+        <div class="track"><div class="bar alt wide" style="width:38.41%"><span class="bval">460.6 W</span></div><div class="ceiling" style="left:91.74%"></div></div>
+        <span class="blabel">fma-only</span>
+        <div class="track"><div class="bar alt wide" style="width:34.37%"><span class="bval">412.1 W</span></div><div class="ceiling" style="left:91.74%"></div></div>
+        <span class="blabel">mix-tensor-fma-wmma</span>
+        <div class="track"><div class="bar alt" style="width:27.60%"><span class="bval">331.0 W</span></div><div class="ceiling" style="left:91.74%"></div></div>
+          <div class="axis">
+            <span class="tick" style="left:0">0</span>
+            <span class="tick" style="left:45.87%">550 W</span>
+            <span class="tick cap" style="left:91.74%">1,100 W cap</span>
+          </div>
+        </div>
+        <div class="legend">
+          <span><i></i>reaches the 5th-gen tensor core (cuBLAS → tcgen05)</span>
+          <span><i class="alt"></i>cannot reach it (warp-synchronous wmma, or no tensor work)</span>
+          <span><i class="dash"></i>enforced limit</span>
+        </div>
+      </div>
+      <figcaption>Mean power over a 12 s steady window, fp16 unless noted, matrix size 8192 unless noted.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <p class="eyebrow">The finding that nearly didn&#x27;t happen</p>
+    <h2>A 528 W difference between two ways of saying &quot;use the tensor cores&quot;</h2>
+    <div class="prose"><p>The orange bars near the bottom are the same tensor workload written the obvious way — <code>wmma</code>, warp-synchronous matrix-multiply inside our own kernel. It draws 460.6 W. The identical nominal work issued through cuBLAS draws <strong>988.8 W</strong> on the same silicon in the same session.</p><p>Warp-synchronous <code>wmma</code> simply cannot reach Blackwell's 5th-generation tensor core. Only cuBLAS emits the <code>tcgen05</code> path. That distinction went into the harness on the strength of a reading of the PTX ISA the day before this run.</p><div class="callout"><p class="eyebrow">Counterfactual</p><p>Had we run the original ladder on this box, it would have reported 460 W, we would have concluded Blackwell's tensor cores were unremarkable, and we would have been wrong by more than a factor of two.</p></div></div>
+  </section>
+  <section>
+    <p class="eyebrow">O1 · the surprise</p>
+    <h2>Everything we learned on Ampere inverted</h2>
+    <div class="prose"><p>The same harness ran a week earlier on an A10G. There, plain FP32 FFMA was the strongest workload by a wide margin (75.3% of TDP) and the tensor path was the weakest (37.3%). On B300 the ranking is precisely upside down: tensor 90.4%, DRAM 70.9%, FFMA 37.5%.</p><h3>And the mixing hypothesis died twice, for opposite reasons</h3><p>The harness was built around a plausible idea: a workload driving tensor cores, FP32 pipes and memory <em>simultaneously</em> should out-draw one saturating any single unit. It is wrong on both architectures, and the mechanism differs.</p><ul><li><strong>On Ampere</strong>, every unit competes for warp slots. FFMA had the best watts-per-warp, so mixing gave warps away to units that used them worse.</li><li><strong>On Blackwell</strong>, the cuBLAS GEMM is the strongest consumer and our kernel displaces its blocks off the SMs. <code>tcgen05</code> being asynchronous and single-thread-issued genuinely does free the instruction stream — but the contended resource turns out to be <strong>SM residency, not issue slots</strong>.</li></ul><p>The prediction registered before this run — that concurrent tensor+FMA exceeding FMA-alone would prove overlap — resolved <strong>no</strong>. 581.8 W beats FFMA's 412.1 W, but both sit far below tensor-alone at 988.8 W. The mix is dilution, not addition.</p></div>
+  </section>
+
+  <section>
+    <p class="eyebrow">O2 · transients</p>
+    <h2>The averaged counter cannot see the bottom of the swing</h2>
+    <div class="prose"><p>Driving the same tensor workload as a 200 ms on / 200 ms off square wave, two NVML paths were sampled simultaneously. They agree almost exactly at the peak and disagree by 339 W at the floor.</p></div>
+    <figure>
+      <div class="chart">
+        <div class="bars">
+          <span class="blabel">POWER_INSTANT</span>
+          <div class="rangerow"><div class="ceiling" style="left:91.74%"></div><div class="band" style="left:16.31%; right:10.23%"></div><span class="bandnum" style="left:16.81%">195.6 W</span><span class="bandnum" style="right:10.73%">1,076.4 W</span></div>
+          <span class="blabel">GetPowerUsage averaged</span>
+          <div class="rangerow"><div class="ceiling" style="left:91.74%"></div><div class="band alt" style="left:44.60%; right:9.87%"></div><span class="bandnum" style="left:45.10%">534.7 W</span><span class="bandnum" style="right:10.37%">1,080.6 W</span></div>
+          <div class="axis">
+            <span class="tick" style="left:0">0</span>
+            <span class="tick cap" style="left:91.74%">1,100 W cap</span>
+          </div>
+        </div>
+        <div class="legend">
+          <span><i></i>instantaneous — swing 880.8 W</span>
+          <span><i class="alt"></i>driver-averaged — swing 545.9 W</span>
+          <span><i class="dash"></i>enforced limit</span>
+        </div>
+      </div>
+      <figcaption>Observed minimum and maximum across a 14 s window of 200 ms bursts, 100 Hz requested (77.9 Hz achieved). Both paths logged per sample with a source tag.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <p class="eyebrow">Full data</p>
+    <h2>Every rung</h2>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Rung</th><th>Tensor backend</th><th>Mean W</th>
+          <th>% of limit</th><th>SM clock</th><th>Throttle</th></tr></thead>
+        <tbody>
+          <tr class="best"><td>tensor-only-bf16</td><td>cuBLAS</td><td class="num">994.9</td><td class="num">90.4</td><td class="num">1,970</td><td>none</td></tr>
+          <tr><td>tensor-only-cublas</td><td>cuBLAS</td><td class="num">988.8</td><td class="num">89.9</td><td class="num">1,938</td><td>none</td></tr>
+          <tr><td>tensor4-dram1-16k</td><td>cuBLAS</td><td class="num">976.8</td><td class="num">88.8</td><td class="num">1,935</td><td>none</td></tr>
+          <tr><td>tensor-16k-s2</td><td>cuBLAS</td><td class="num">966.0</td><td class="num">87.8</td><td class="num">1,941</td><td>none</td></tr>
+          <tr><td>tensor-16k</td><td>cuBLAS</td><td class="num">964.2</td><td class="num">87.7</td><td class="num">1,935</td><td>none</td></tr>
+          <tr><td>dram-only</td><td>—</td><td class="num">779.7</td><td class="num">70.9</td><td class="num">1,935</td><td>none</td></tr>
+          <tr><td>mix-all-cublas</td><td>cuBLAS</td><td class="num">733.2</td><td class="num">66.7</td><td class="num">1,935</td><td>none</td></tr>
+          <tr><td>mix-t2-f1-cublas</td><td>cuBLAS</td><td class="num">671.2</td><td class="num">61.0</td><td class="num">1,935</td><td>none</td></tr>
+          <tr><td>mix-tensor-fma-cublas</td><td>cuBLAS</td><td class="num">581.8</td><td class="num">52.9</td><td class="num">1,935</td><td>none</td></tr>
+          <tr><td>tensor-only-wmma</td><td>wmma</td><td class="num">460.6</td><td class="num">41.9</td><td class="num">1,953</td><td>none</td></tr>
+          <tr><td>fma-only</td><td>—</td><td class="num">412.1</td><td class="num">37.5</td><td class="num">1,962</td><td>none</td></tr>
+          <tr><td>mix-tensor-fma-wmma</td><td>wmma</td><td class="num">331.0</td><td class="num">30.1</td><td class="num">1,949</td><td>none</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Reading this honestly</p>
+    <h2>What these numbers are not</h2>
+    <div class="prose"><ul><li><strong>In-band only.</strong> A KVM guest has no BMC, so every figure is what NVML reported, not what the board drew.</li><li><strong>One GPU, no fabric.</strong> NVLink and inter-die traffic contribute real watts on a populated node and nothing here.</li><li><strong>Short windows.</strong> 12 s steady, one run per configuration. Enough to rank configurations; not enough to publish a number.</li><li><strong>One suspect field.</strong> <code>power_violation_us</code> read 6.65×10⁹ µs, far longer than the rung, so it is almost certainly a since-boot counter rather than the intended delta. Excluded from every conclusion.</li></ul></div>
+  </section>
+  <section>
+    <p class="eyebrow">Next</p>
+    <h2>Where the missing 105 W might be</h2>
+    <div class="prose"><p>The part was never power-limited, so roughly 105 W of headroom is workload shortfall rather than the controller clamping. Two untested paths could plausibly close it: <strong>FP8 and FP4</strong>. Both need <code>cublasLtMatmul</code> — <code>cublasGemmEx</code> cannot express them — and FP4 additionally requires the <code>sm_103a</code> architecture target, which the build already emits.</p><p>Beyond that: a populated 8×B300 node, where the fabric contributes and where phase-aligned duty cycling turns a 0.9 kW single-GPU swing into a node-level step worth putting in front of a grid operator.</p></div>
+  </section>
+
+  <footer>
+    <span>gpu-power-lab · results/t2-b300 · ~25 minutes of GPU time, including driver installation</span>
+  </footer>
+</div>
