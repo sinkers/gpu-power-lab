@@ -7,6 +7,7 @@ typedef enum {
     GPL_OP_SGEMM = 1,
     GPL_OP_FFT,
     GPL_OP_MEMSTREAM,
+    GPL_OP_POWERVIRUS,
 } gpl_op_t;
 
 typedef enum {
@@ -30,6 +31,24 @@ typedef struct {
     const char *out_summary;   /* summary JSON path, or NULL for stdout */
     const char *rung_id;       /* optional rung id, generated if NULL */
     bool       stop_on_throttle;
+
+    /* --- O1: powervirus mix weights (relative, 0 disables that unit) --- */
+    int        mix_tensor;
+    int        mix_fma;
+    int        mix_dram;
+
+    /* --- O2: duty-cycle modulation. on_ms <= 0 disables. --- */
+    double     duty_on_ms;
+    double     duty_off_ms;
+
+    /* --- Fixed-work mode: >0 means run exactly this many steady
+     * iterations and measure elapsed time, instead of running to the
+     * steady deadline. Required for meaningful EDP / EDPp. --- */
+    long long  iters;
+
+    /* --- Platform control --- */
+    bool       raise_power_limit;  /* set enforced limit to device max */
+    bool       probe;              /* capability probe, then exit */
 } gpl_args_t;
 
 /* Fill args with defaults. */

@@ -7,6 +7,12 @@
 #include "args.h"
 #include "telemetry.h"
 
+/* Workload entry points are defined in a mix of .c and .cu files and are
+ * called from main.c, which is C. Force C linkage on both sides. */
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct {
     /* Set by caller. */
     const gpl_args_t *args;
@@ -34,6 +40,11 @@ int gpl_workload_memstream_run(gpl_workload_ctx_t *ctx);
 /* Batched 1-D cuFFT C2C workload (FP32, always). */
 int gpl_workload_fft_run(gpl_workload_ctx_t *ctx);
 
+/* Mixed-unit maximum-power workload (O1). Warp-specialized: tensor cores,
+ * FFMA chains and DRAM streaming run concurrently on the same SM, in the
+ * ratio given by the --mix-* weights. Honours --duty-* and --iters. */
+int gpl_workload_powervirus_run(gpl_workload_ctx_t *ctx);
+
 /* FLOPs per iteration for this rung.
  * Returns 2*M*N*K for SGEMM; 0.0 for bandwidth/FFT ops (use
  * gpl_workload_bytes_per_iter for those). */
@@ -43,5 +54,9 @@ double gpl_workload_flops_per_iter(const gpl_args_t *a);
  * Returns 0.0 for SGEMM (TFLOPS is the primary metric there).
  * See workload_util.c for the exact formulae. */
 double gpl_workload_bytes_per_iter(const gpl_args_t *a);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

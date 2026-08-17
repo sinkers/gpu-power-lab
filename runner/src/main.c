@@ -22,6 +22,7 @@
 #include <string.h>
 
 #include "args.h"
+#include "probe.h"
 #include "summary.h"
 #include "telemetry.h"
 #include "util.h"
@@ -57,6 +58,33 @@ int main(int argc, char **argv) {
         gpl_errf("cudaSetDevice(%d) failed", args.device);
         nvmlShutdown();
         return 4;
+    }
+
+    /* Capability probe: what does this platform actually permit?
+     * Runs before anything else so a container platform that silently
+     * denies the power-limit write fails here, loudly, instead of
+     * producing a sweep of unenforced rungs. */
+    if (args.probe) {
+        int prc2 = gpl_probe_run(nvdev, stdout);
+        nvmlShutdown();
+        return prc2;
+    }
+
+    /* Raise the enforced limit to the device maximum (O1). Needs root;
+     * degrade cleanly and record it rather than aborting the rung. */
+    if (args.raise_power_limit) {
+        unsigned int mn = 0, mx = 0;
+        if (nvmlDeviceGetPowerManagementLimitConstraints(nvdev, &mn, &mx) == NVML_SUCCESS) {
+            nvmlReturn_t sr = nvmlDeviceSetPowerManagementLimit(nvdev, mx);
+            if (sr == NVML_SUCCESS) {
+                gpl_logf("power limit raised to device max: %.0f W", mx / 1000.0);
+            } else {
+                gpl_errf("limit_raise: denied (%s) — measuring at the current limit",
+                         nvml_str(sr));
+            }
+        } else {
+            gpl_errf("limit_raise: constraints unavailable");
+        }
     }
 
     /* Device info */
@@ -108,6 +136,9 @@ int main(int argc, char **argv) {
             break;
         case GPL_OP_FFT:
             wrc = gpl_workload_fft_run(&wctx);
+            break;
+        case GPL_OP_POWERVIRUS:
+            wrc = gpl_workload_powervirus_run(&wctx);
             break;
         default:
             wctx.error = "unknown op";

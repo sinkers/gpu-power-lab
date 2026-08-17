@@ -116,7 +116,12 @@ int gpl_workload_gemm_run(gpl_workload_ctx_t *ctx) {
 
     /* Alpha / beta are always float32 host scalars for these compute types. */
     float alpha_f = 1.0f, beta_f = 0.0f;
-    __half alpha_h = __float2half(1.0f), beta_h = __float2half(0.0f);
+    /* CUBLAS_COMPUTE_16F wants half-precision host scalars. `__half` and
+     * `__float2half` are C++-only (cuda_fp16.h guards them), and this file
+     * is compiled as C11, so use the IEEE-754 binary16 bit patterns
+     * directly: 0x3C00 is 1.0, 0x0000 is 0.0. cuBLAS only reads the 16
+     * bits, and this keeps the file out of nvcc. */
+    unsigned short alpha_h = 0x3C00, beta_h = 0x0000;
     void *alpha_p, *beta_p;
     if (cT == CUBLAS_COMPUTE_16F) { alpha_p = &alpha_h; beta_p = &beta_h; }
     else                          { alpha_p = &alpha_f; beta_p = &beta_f; }

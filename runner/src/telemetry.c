@@ -42,6 +42,7 @@ static const uint64_t k_meaningful_throttle_mask =
 
 static void phase_stats_init(gpl_phase_stats_t *s) {
     gpl_dvec_init(&s->power_w, 4096);
+    gpl_dvec_init(&s->power_instant_w, 4096);
     gpl_dvec_init(&s->temp_c, 4096);
     gpl_dvec_init(&s->sm_mhz, 4096);
     gpl_dvec_init(&s->mem_mhz, 4096);
@@ -53,6 +54,12 @@ static void phase_stats_init(gpl_phase_stats_t *s) {
     s->energy_end_mj = 0;
     s->energy_valid = false;
     s->samples = 0;
+    s->power_integral_j = 0.0;
+    s->elapsed_s = 0.0;
+    s->violation_us_start = 0;
+    s->violation_us_end = 0;
+    s->violation_valid = false;
+    s->peak_instant_w = 0.0;
 }
 
 bool gpl_telemetry_throttled_now(gpl_telemetry_t *t) {
@@ -85,6 +92,7 @@ static void *sampler_thread(void *arg) {
     clock_gettime(CLOCK_MONOTONIC, &next);
 
     gpl_phase_t prev_phase = GPL_PHASE_IDLE;
+    uint64_t prev_ns = gpl_mono_ns();
 
     while (1) {
         gpl_phase_t phase = atomic_load(&t->phase);
@@ -103,8 +111,35 @@ static void *sampler_thread(void *arg) {
         unsigned long long energy_mj = 0;
         unsigned long long reasons = 0;
         unsigned int fan_pct = 0;
+        double power_instant_w = -1.0;
+        unsigned long long violation_us = 0;
+        bool violation_ok = false;
 
         nvmlDeviceGetPowerUsage(t->device, &power_mw);
+
+#ifdef NVML_FI_DEV_POWER_INSTANT
+        if (t->have_instant) {
+            nvmlFieldValue_t fv;
+            memset(&fv, 0, sizeof(fv));
+            fv.fieldId = NVML_FI_DEV_POWER_INSTANT;
+            if (nvmlDeviceGetFieldValues(t->device, 1, &fv) == NVML_SUCCESS &&
+                fv.nvmlReturn == NVML_SUCCESS) {
+                /* Field is milliwatts, but the value type varies by driver. */
+                double mw_i = (fv.valueType == NVML_VALUE_TYPE_UNSIGNED_INT)
+                                ? (double)fv.value.uiVal
+                                : (double)fv.value.ullVal;
+                power_instant_w = mw_i / 1000.0;
+            }
+        }
+#endif
+        if (t->have_violation) {
+            nvmlViolationTime_t vio;
+            if (nvmlDeviceGetViolationStatus(t->device, NVML_PERF_POLICY_POWER,
+                                             &vio) == NVML_SUCCESS) {
+                violation_us = vio.violationTime;
+                violation_ok = true;
+            }
+        }
         nvmlDeviceGetTemperature(t->device, NVML_TEMPERATURE_GPU, &temp_gpu);
         nvmlDeviceGetClockInfo(t->device, NVML_CLOCK_SM, &clock_sm);
         nvmlDeviceGetClockInfo(t->device, NVML_CLOCK_MEM, &clock_mem);
@@ -112,6 +147,11 @@ static void *sampler_thread(void *arg) {
         (void)nvmlDeviceGetTotalEnergyConsumption(t->device, &energy_mj);
         (void)nvmlDeviceGetCurrentClocksThrottleReasons(t->device, &reasons);
         (void)nvmlDeviceGetFanSpeed(t->device, &fan_pct);
+
+        uint64_t now_ns = gpl_mono_ns();
+        double dt_s = (double)(now_ns - prev_ns) / 1e9;
+        prev_ns = now_ns;
+        if (dt_s <= 0.0 || dt_s > 1.0) dt_s = 1.0 / (double)t->sample_hz;
 
         double power_w = (double)power_mw / 1000.0;
         double temp_c  = (double)temp_gpu;
@@ -125,6 +165,24 @@ static void *sampler_thread(void *arg) {
                 }
             }
             gpl_dvec_push(&stats->power_w, power_w);
+            /* Integrate against measured dt, not the nominal period. The
+             * sampler does not always achieve --sample-hz: each tick makes
+             * several NVML calls and on some drivers they are slow enough
+             * to halve the rate. Using 1/sample_hz here silently loses
+             * area and shows up as a bogus energy gap. */
+            stats->power_integral_j += power_w * dt_s;
+            if (power_instant_w >= 0.0) {
+                gpl_dvec_push(&stats->power_instant_w, power_instant_w);
+                if (power_instant_w > stats->peak_instant_w)
+                    stats->peak_instant_w = power_instant_w;
+            }
+            if (violation_ok) {
+                if (!stats->violation_valid) {
+                    stats->violation_us_start = violation_us;
+                    stats->violation_valid = true;
+                }
+                stats->violation_us_end = violation_us;
+            }
             gpl_dvec_push(&stats->temp_c, temp_c);
             gpl_dvec_push(&stats->sm_mhz, (double)clock_sm);
             gpl_dvec_push(&stats->mem_mhz, (double)clock_mem);
@@ -132,11 +190,12 @@ static void *sampler_thread(void *arg) {
             gpl_dvec_push(&stats->mem_util, (double)util.memory);
             stats->throttle_mask_or |= (uint64_t)reasons;
             if (((uint64_t)reasons & k_meaningful_throttle_mask) != 0) {
-                stats->throttled_sec += 1.0 / (double)t->sample_hz;
+                stats->throttled_sec += dt_s;
                 if (phase == GPL_PHASE_STEADY) atomic_store(&t->throttle_seen_steady, true);
             }
             if (energy_mj > 0) stats->energy_end_mj = energy_mj;
             stats->samples++;
+            stats->elapsed_s += dt_s;
         }
 
         /* Optional per-sample NDJSON. */
@@ -148,13 +207,16 @@ static void *sampler_thread(void *arg) {
                 "\"power_w\":%.3f,\"temp_c\":%.1f,"
                 "\"sm_mhz\":%u,\"mem_mhz\":%u,"
                 "\"sm_util\":%u,\"mem_util\":%u,"
-                "\"energy_mj\":%llu,\"throttle_mask\":%llu,\"fan_pct\":%u}\n",
+                "\"energy_mj\":%llu,\"throttle_mask\":%llu,\"fan_pct\":%u,"
+                "\"power_instant_w\":%.3f,\"source\":\"%s\"}\n",
                 ts, t->rung_id ? t->rung_id : "", phase_name(phase),
                 power_w, temp_c, clock_sm, clock_mem,
                 util.gpu, util.memory,
                 (unsigned long long)energy_mj,
                 (unsigned long long)reasons,
-                fan_pct);
+                fan_pct,
+                power_instant_w,
+                power_instant_w >= 0.0 ? "nvml_usage+instant" : "nvml_usage");
             /* Flush every 100 samples so tail -f is useful and a crash
              * loses at most ~1s of data. */
             if ((t->warmup.samples + t->steady.samples) % 100 == 0) {
@@ -183,6 +245,25 @@ int gpl_telemetry_start(gpl_telemetry_t *t, nvmlDevice_t dev, int sample_hz,
     t->sample_hz = sample_hz;
     t->ndjson = ndjson_out;
     t->rung_id = rung_id;
+    /* Resolve capabilities once — polling a field that is unsupported on
+     * this part costs a syscall per sample for nothing. */
+#ifdef NVML_FI_DEV_POWER_INSTANT
+    {
+        nvmlFieldValue_t fv;
+        memset(&fv, 0, sizeof(fv));
+        fv.fieldId = NVML_FI_DEV_POWER_INSTANT;
+        t->have_instant = (nvmlDeviceGetFieldValues(dev, 1, &fv) == NVML_SUCCESS &&
+                           fv.nvmlReturn == NVML_SUCCESS);
+    }
+#else
+    t->have_instant = false;
+#endif
+    {
+        nvmlViolationTime_t vio;
+        t->have_violation =
+            (nvmlDeviceGetViolationStatus(dev, NVML_PERF_POLICY_POWER, &vio) == NVML_SUCCESS);
+    }
+
     atomic_store(&t->phase, GPL_PHASE_IDLE);
     atomic_store(&t->throttle_seen_steady, false);
     phase_stats_init(&t->warmup);

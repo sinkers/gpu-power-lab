@@ -57,7 +57,6 @@ static __global__ void stream_triad_kernel(
 /* Public interface — extern "C" so main.c (plain C) can call us      */
 /* ------------------------------------------------------------------ */
 
-extern "C"
 int gpl_workload_memstream_run(gpl_workload_ctx_t *ctx)
 {
     const gpl_args_t *a      = ctx->args;

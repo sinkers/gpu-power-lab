@@ -15,7 +15,10 @@ typedef struct {
     char        cuda_runtime[32];
     char        vbios[64];
     char        pci_bus_id[32];
-    double      power_limit_w;
+    double      power_limit_w;     /* enforced right now */
+    double      default_limit_w;   /* NVML default — our TDP proxy */
+    double      min_limit_w;
+    double      max_limit_w;
 } gpl_device_info_t;
 
 int  gpl_device_info_fill(nvmlDevice_t dev, gpl_device_info_t *out);
