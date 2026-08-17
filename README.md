@@ -2,10 +2,46 @@
 
 Low-level GPU power characterization harness.
 
-Runs a controlled ramp of compute workloads on a single GPU while sampling
-NVML (and optionally DCGM) at high rate to characterize power draw,
-thermal behaviour, throttling, and delivered TFLOPS across a matrix of
-operations, precisions, sizes, and concurrency levels.
+Two questions drive the project:
+
+- **O1 — can we hit 100%?** Can synthetic code drive a GPU to sustained
+  draw at 100% of its enforced power limit — genuinely power-limited,
+  not thermally or compute limited?
+- **O2 — how spiky can we make it?** Can we then modulate that load into
+  extreme transients — large, fast, repeatable idle↔max swings, with
+  instantaneous excursions that overshoot the rated limit before the
+  GPU's own power controller clamps them?
+
+To answer them it runs a controlled ramp of compute workloads on a single
+GPU while sampling NVML (and optionally DCGM) at high rate, capturing
+power draw, thermal behaviour, throttling, and delivered TFLOPS across a
+matrix of operations, precisions, sizes, and concurrency levels.
+
+The working hypothesis is that **O1's answer is no** — that no workload
+we can write holds a datacenter GPU at its full rated power. If so, the
+useful result is the breakdown: how much power each class of work
+contributes (FP32 vs each tensor precision vs memory traffic vs
+fabric), where each one runs out of headroom, and what the residual gap
+is made of.
+
+Per-rung outputs include the standard efficiency trio — **EDP** (E×D),
+**EDPp** (E×D²) and **%TDP** — so results are comparable to published
+work and can locate operating points, not just ceilings. The headline
+efficiency output is EDP and EDPp swept against the enforced power
+limit: the cap that minimizes EDP is the energy-performance sweet spot,
+and capping below it is where demand response starts genuinely trading
+performance for grid service.
+
+- `DESIGN.md` — success criteria, the O1 power-attribution ladder, the
+  `powervirus` workload design, the efficiency metrics, and the
+  instrumentation constraints that decide whether O2 is answerable at
+  all.
+- `docs/blackwell-cuda-notes.md` — Blackwell from a CUDA programming
+  perspective: SM units and where the watts live, `tcgen05` and tensor
+  memory, asynchrony, precision formats, DVFS behaviour near the cap.
+  Living document; claims are marked verified or unverified.
+- `TESTPLAN.md` — how the code gets written and validated on cheap
+  hardware before it runs on a bare-metal 8×B300 node.
 
 ## Architecture
 
@@ -30,6 +66,9 @@ The **contract between them** is defined by
 ```
 gpu-power-lab/
 ├── DESIGN.md                    # The full design doc
+├── TESTPLAN.md                  # Dev + test workflow, tier by tier
+├── docs/
+│   └── blackwell-cuda-notes.md  # Blackwell for CUDA programmers
 ├── schema/
 │   └── rung-summary.schema.json # C ↔ Python contract
 ├── runner/                      # C binary
@@ -124,6 +163,12 @@ python schema_validate.py /tmp/out/my-campaign/rung-0000/summary.json
 
 ## Status
 
-**Scaffold + first working slice.** GEMM workload only, NVML sampling,
-local NDJSON + JSON output. See `DESIGN.md` for the full plan and
-what's next.
+**Scaffold + first working slice; scope revised 2026-08-17.** GEMM,
+memstream and FFT workloads, NVML sampling, local NDJSON + JSON output.
+
+Not yet built, and needed for the two objectives above:
+
+- `powervirus` mixed-unit kernel and the power-limit-raising setup (O1)
+- `--duty` modulation and the high-bandwidth power sampling paths (O2)
+
+See `DESIGN.md` for the full plan and what's next.
