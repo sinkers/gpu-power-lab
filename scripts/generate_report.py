@@ -236,6 +236,20 @@ CSS = """
   li::marker { color:var(--muted); }
   code { font-family:var(--mono); font-size:.88em; background:var(--surface-sunk);
          padding:.08em .34em; border-radius:3px; }
+  pre { margin:0; background:var(--surface); border:1px solid var(--rule);
+        padding:1.1rem 1.2rem; overflow-x:auto; font-family:var(--mono);
+        font-size:var(--step--1); line-height:1.55; color:var(--ink-2); }
+  pre code { background:none; padding:0; font-size:1em; }
+  pre .c { color:var(--muted); font-style:italic; }
+  pre .k { color:var(--signal); }
+  .codecap { font-family:var(--mono); font-size:var(--step--1); color:var(--muted);
+             display:flex; gap:.6rem; align-items:baseline; }
+  .codecap b { font-weight:500; color:var(--ink-2); }
+  .wideblock { display:flex; flex-direction:column; gap:.7rem; }
+  .cmp th:first-child, .cmp td:first-child { color:var(--muted); font-weight:500; }
+  .cmp td { vertical-align:top; white-space:normal; min-width:11rem; }
+  .cmp thead th { text-align:left; }
+  .cmp td, .cmp th { text-align:left; }
   footer { font-family:var(--mono); font-size:var(--step--1); color:var(--muted);
            border-top:1px solid var(--rule); padding-top:1rem;
            display:flex; flex-direction:column; gap:.3rem; }
@@ -329,17 +343,28 @@ def render(rungs, duty, story, out_path):
   </section>"""
 
     def render_sections(key):
-        return "\n".join(
-            f'  <section>\n    <p class="eyebrow">{html.escape(sec.get("eyebrow",""))}</p>\n'
-            f'    <h2>{html.escape(sec["h2"])}</h2>\n'
-            f'    <div class="prose">{sec["body"]}</div>\n  </section>'
-            for sec in s.get(key, []))
+        """Each section is: eyebrow, heading, prose, an optional full-width
+        block (code listings, wide comparison tables), then optional closing
+        prose. The wide block sits outside .prose so it is not squeezed to the
+        66ch measure."""
+        out = []
+        for sec in s.get(key, []):
+            parts = [
+                f'  <section>',
+                f'    <p class="eyebrow">{html.escape(sec.get("eyebrow", ""))}</p>',
+                f'    <h2>{html.escape(sec["h2"])}</h2>',
+            ]
+            if sec.get("body"):
+                parts.append(f'    <div class="prose">{sec["body"]}</div>')
+            if sec.get("wide"):
+                parts.append(f'    <div class="wideblock">{sec["wide"]}</div>')
+            if sec.get("body_after"):
+                parts.append(f'    <div class="prose">{sec["body_after"]}</div>')
+            parts.append('  </section>')
+            out.append("\n".join(parts))
+        return "\n".join(out)
 
-    sections = "\n".join(
-        f'  <section>\n    <p class="eyebrow">{html.escape(sec.get("eyebrow",""))}</p>\n'
-        f'    <h2>{html.escape(sec["h2"])}</h2>\n'
-        f'    <div class="prose">{sec["body"]}</div>\n  </section>'
-        for sec in s.get("sections", []))
+    sections = render_sections("sections")
     closing = render_sections("closing")
 
     page = f"""<title>{html.escape(title)}</title>

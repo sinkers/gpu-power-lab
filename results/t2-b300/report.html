@@ -124,6 +124,20 @@
   li::marker { color:var(--muted); }
   code { font-family:var(--mono); font-size:.88em; background:var(--surface-sunk);
          padding:.08em .34em; border-radius:3px; }
+  pre { margin:0; background:var(--surface); border:1px solid var(--rule);
+        padding:1.1rem 1.2rem; overflow-x:auto; font-family:var(--mono);
+        font-size:var(--step--1); line-height:1.55; color:var(--ink-2); }
+  pre code { background:none; padding:0; font-size:1em; }
+  pre .c { color:var(--muted); font-style:italic; }
+  pre .k { color:var(--signal); }
+  .codecap { font-family:var(--mono); font-size:var(--step--1); color:var(--muted);
+             display:flex; gap:.6rem; align-items:baseline; }
+  .codecap b { font-weight:500; color:var(--ink-2); }
+  .wideblock { display:flex; flex-direction:column; gap:.7rem; }
+  .cmp th:first-child, .cmp td:first-child { color:var(--muted); font-weight:500; }
+  .cmp td { vertical-align:top; white-space:normal; min-width:11rem; }
+  .cmp thead th { text-align:left; }
+  .cmp td, .cmp th { text-align:left; }
   footer { font-family:var(--mono); font-size:var(--step--1); color:var(--muted);
            border-top:1px solid var(--rule); padding-top:1rem;
            display:flex; flex-direction:column; gap:.3rem; }
@@ -207,9 +221,51 @@
     <div class="prose"><p>The orange bars near the bottom are the same tensor workload written the obvious way — <code>wmma</code>, warp-synchronous matrix-multiply inside our own kernel. It draws 460.6 W. The identical nominal work issued through cuBLAS draws <strong>988.8 W</strong> on the same silicon in the same session.</p><p>Warp-synchronous <code>wmma</code> simply cannot reach Blackwell's 5th-generation tensor core. Only cuBLAS emits the <code>tcgen05</code> path. That distinction went into the harness on the strength of a reading of the PTX ISA the day before this run.</p><div class="callout"><p class="eyebrow">Counterfactual</p><p>Had we run the original ladder on this box, it would have reported 460 W, we would have concluded Blackwell's tensor cores were unremarkable, and we would have been wrong by more than a factor of two.</p></div></div>
   </section>
   <section>
+    <p class="eyebrow">Method</p>
+    <h2>How the workload is actually written</h2>
+    <div class="prose"><p>The measurement is a single C11 binary. One invocation runs one rung end to end — warmup, then a timed steady window, then a summary — and exits. Python only decides <em>which</em> rungs to run; no interpreter, garbage collector or allocator sits inside the measured window. A sampler thread polls NVML on a pinned core using absolute-deadline sleeps, so it does not drift, and it records both the driver-averaged and the instantaneous power counter on every tick.</p><p>The workload kernel uses <strong>warp specialisation</strong>. Every warp reads a 32-entry role map built from the <code>--mix-*</code> weights and then does one thing for the whole launch, so tensor cores, the FP32 pipe and the memory path are driven by different warps resident on the same SM at the same time.</p></div>
+    <div class="wideblock"><div class="codecap"><b>runner/src/workload_powervirus.cu</b><span>the three roles, abridged</span></div><pre><code><span class="c">/* TENSOR - register-resident fragments, two independent accumulator
+   chains so the MMA pipe never stalls on one dependency. */</span>
+for (int i = 0; i &lt; inner; i++) {
+    mma_sync(c0, a0, b0, c0);   mma_sync(c1, a1, b1, c1);
+    mma_sync(c0, a1, b0, c0);   mma_sync(c1, a0, b1, c1);
+}
+
+<span class="c">/* FMA - eight independent FFMA chains: enough instruction-level
+   parallelism to issue every cycle, high register pressure, but the
+   build fails on any spill (a spill would silently turn this into a
+   memory workload). */</span>
+for (int i = 0; i &lt; inner * 16; i++) {
+    x0 = fmaf(x0, m, c);  x1 = fmaf(x1, m, c);
+    <span class="c">/* ... x2 .. x7 ... */</span>
+}
+
+<span class="c">/* DRAM - 128-bit loads on a prime stride, ~1 MB apart, so every
+   access misses L2 and no two warps share a cache line. */</span>
+const size_t stride = 65537;
+for (int i = 0; i &lt; inner * 4; i++) {
+    float4 v = stream_buf[idx];
+    acc += v.x + v.y + v.z + v.w;
+    idx = (idx + stride) % stream_elems;
+}
+
+<span class="c">/* Nothing is ever checked. The accumulators are consumed by a branch
+   that cannot be taken, purely so the optimiser cannot delete the
+   loops it would otherwise see as dead code. */</span>
+if (keep == 1.2345678e-30f) sink[0] = keep;</code></pre></div>
+    <div class="prose"><p>Three details matter more than they look. Input buffers are filled with <code>memset(0x3c)</code> — the bit pattern for half-precision ≈1.0 — because the arithmetic must be numerically unremarkable, not correct. Kernel launches are queued eight deep before a synchronise, since a host round-trip per launch left the GPU idle and cost about 20% of achievable power on the first attempt. And the tensor role has two backends: our own <code>wmma</code> loop, and a concurrent cuBLAS GEMM stream. On Blackwell only the second reaches <code>tcgen05</code>, which is the 528 W difference reported above.</p><p>For the O2 transient test, the off phase is a real host sleep rather than a spin. The number being measured is the distance from the idle floor to the peak, so a busy-wait would quietly destroy it.</p></div>
+  </section>
+  <section>
     <p class="eyebrow">O1 · the surprise</p>
     <h2>Everything we learned on Ampere inverted</h2>
     <div class="prose"><p>The same harness ran a week earlier on an A10G. There, plain FP32 FFMA was the strongest workload by a wide margin (75.3% of TDP) and the tensor path was the weakest (37.3%). On B300 the ranking is precisely upside down: tensor 90.4%, DRAM 70.9%, FFMA 37.5%.</p><h3>And the mixing hypothesis died twice, for opposite reasons</h3><p>The harness was built around a plausible idea: a workload driving tensor cores, FP32 pipes and memory <em>simultaneously</em> should out-draw one saturating any single unit. It is wrong on both architectures, and the mechanism differs.</p><ul><li><strong>On Ampere</strong>, every unit competes for warp slots. FFMA had the best watts-per-warp, so mixing gave warps away to units that used them worse.</li><li><strong>On Blackwell</strong>, the cuBLAS GEMM is the strongest consumer and our kernel displaces its blocks off the SMs. <code>tcgen05</code> being asynchronous and single-thread-issued genuinely does free the instruction stream — but the contended resource turns out to be <strong>SM residency, not issue slots</strong>.</li></ul><p>The prediction registered before this run — that concurrent tensor+FMA exceeding FMA-alone would prove overlap — resolved <strong>no</strong>. 581.8 W beats FFMA's 412.1 W, but both sit far below tensor-alone at 988.8 W. The mix is dilution, not addition.</p></div>
+  </section>
+  <section>
+    <p class="eyebrow">Interpretation</p>
+    <h2>How this differs from training and inference</h2>
+    <div class="prose"><p>This is a deliberately unrealistic workload, and the ways it is unrealistic are the point. A power virus is what the silicon does when <em>nothing is in the way</em>; a real job is that same arithmetic with overheads attached. Reading the gap between them is more useful than either number alone.</p><p>The strongest rung here is not exotic — it is a large dense GEMM, the same operation at the heart of both a training step and an inference prefill. What the harness strips away is everything around it.</p></div>
+    <div class="wideblock"><div class="tablewrap"><table class="cmp"><thead><tr><th></th><th>powervirus (this harness)</th><th>Training step</th><th>Inference prefill</th><th>Inference decode</th></tr></thead><tbody><tr><td>Dominant unit</td><td>Tensor cores, uninterrupted</td><td>Tensor cores, interrupted</td><td>Tensor cores</td><td>Memory bandwidth</td></tr><tr><td>HBM traffic</td><td>Optional and separable — GEMM operands stay resident</td><td>Heavy: activations, gradients, optimiser state</td><td>Moderate: weights streamed per layer</td><td>Heavy, latency-bound: KV cache per token</td></tr><tr><td>Host involvement</td><td>None in the measured window</td><td>Dataloader, scheduler, checkpointing</td><td>Request batching, tokenisation</td><td>Per-token scheduling</td></tr><tr><td>Collectives</td><td>None (single GPU)</td><td>Gradient all-reduce every step</td><td>Tensor-parallel all-reduce per layer</td><td>Same, but tiny and latency-bound</td></tr><tr><td>Power shape over time</td><td>Flat by construction, or a square wave on demand</td><td>Sawtooth: compute peaks, comms troughs</td><td>Burst on arrival</td><td>Low and choppy</td></tr><tr><td>Numerical result</td><td>Discarded — never read</td><td>Required and checked</td><td>Required</td><td>Required</td></tr><tr><td>Measured here</td><td><b>90.4% TDP</b> (B300)<br>70.9% memory-only</td><td>not measured</td><td>not measured</td><td>~71% TDP peak, vLLM on A10G <span style="opacity:.7">(earlier study, different part)</span></td></tr></tbody></table></div></div>
+    <div class="prose"><p>The practical consequence: <strong>every gap between a real workload and 90% is overhead, not silicon.</strong> Synchronisation barriers, collective waits, memory stalls, kernel launch gaps, straggler ranks, and the simple fact that a transformer is not one continuous GEMM. Each of those is a moment the power delivery system gets a rest that this harness refuses to give it.</p><p>That also explains why the decode phase behaves so differently. Token generation is memory-bound and latency-bound, which is why the DRAM-only rung — 70.9% of TDP, the second-highest single result here — is arguably a better proxy for a busy inference server than the GEMM is.</p><p>For grid purposes the distinction is the whole argument. A datacentre sized on measured training and inference load is sized on workloads that leave 10–30% of the ceiling unused. A tenant who wanted to could take that back, and could modulate it deliberately — which is the case for treating GPU fleets as a controllable load rather than a fixed one.</p></div>
   </section>
 
   <section>
