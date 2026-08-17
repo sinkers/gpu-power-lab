@@ -70,6 +70,42 @@ int main(int argc, char **argv) {
         return prc2;
     }
 
+    /* Set an explicit enforced limit. This is the cap-sweep path: on a part
+     * whose default limit already equals its maximum, raising does nothing,
+     * but lowering opens the whole EDP-vs-cap curve and is where an
+     * over-limit excursion is most likely to be observable. */
+    if (args.power_limit_w > 0.0) {
+        unsigned int mn = 0, mx = 0, want = (unsigned int)(args.power_limit_w * 1000.0);
+        if (nvmlDeviceGetPowerManagementLimitConstraints(nvdev, &mn, &mx) == NVML_SUCCESS) {
+            if (want < mn || want > mx) {
+                gpl_errf("--power-limit %.0f W outside device range %.0f-%.0f W",
+                         args.power_limit_w, mn / 1000.0, mx / 1000.0);
+                nvmlShutdown();
+                return 2;
+            }
+        }
+        nvmlReturn_t sr = nvmlDeviceSetPowerManagementLimit(nvdev, want);
+        if (sr == NVML_SUCCESS) {
+            gpl_logf("enforced power limit set to %.0f W", args.power_limit_w);
+        } else {
+            gpl_errf("limit_set: denied (%s) — measuring at the current limit",
+                     nvml_str(sr));
+        }
+    }
+
+    /* Locked clocks: removes DVFS from the loop so rungs are comparable at
+     * the cost of realism. Both profiles matter; this is `boost-off`. */
+    if (args.lock_clocks) {
+        unsigned int sm = 0;
+        if (nvmlDeviceGetClockInfo(nvdev, NVML_CLOCK_SM, &sm) == NVML_SUCCESS) {
+            if (nvmlDeviceSetGpuLockedClocks(nvdev, sm, sm) == NVML_SUCCESS) {
+                gpl_logf("SM clock locked at %u MHz", sm);
+            } else {
+                gpl_errf("lock_clocks: denied");
+            }
+        }
+    }
+
     /* Raise the enforced limit to the device maximum (O1). Needs root;
      * degrade cleanly and record it rather than aborting the rung. */
     if (args.raise_power_limit) {
@@ -180,6 +216,16 @@ int main(int argc, char **argv) {
                      start_utc, warmup_ns, steady_ns, wall_ns,
                      args.rung_id, result_str, wctx.error);
     if (sf != stdout) fclose(sf);
+
+    /* Leave the device as we found it: a locked clock or a lowered cap
+     * left behind would silently contaminate every subsequent rung. */
+    if (args.lock_clocks) nvmlDeviceResetGpuLockedClocks(nvdev);
+    if (args.power_limit_w > 0.0) {
+        unsigned int def = 0;
+        if (nvmlDeviceGetPowerManagementDefaultLimit(nvdev, &def) == NVML_SUCCESS) {
+            nvmlDeviceSetPowerManagementLimit(nvdev, def);
+        }
+    }
 
     if (ndjson) fclose(ndjson);
     nvmlShutdown();

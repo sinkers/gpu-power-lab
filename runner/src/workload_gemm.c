@@ -30,6 +30,8 @@
 
 static size_t elem_bytes(gpl_prec_t p) {
     switch (p) {
+        case GPL_PREC_FP64: return 8;
+        case GPL_PREC_INT8: return 1;
         case GPL_PREC_FP32:
         case GPL_PREC_TF32: return 4;
         case GPL_PREC_FP16:
@@ -56,6 +58,18 @@ static void prec_to_cublas(gpl_prec_t p,
         case GPL_PREC_BF16:
             *inT = CUDA_R_16BF; *outT = CUDA_R_16BF; *cT = CUBLAS_COMPUTE_32F;
             break;
+        case GPL_PREC_FP64:
+            /* Is datacenter Blackwell's FP64 path as weak as assumed? On
+             * older parts DGEMM was a reliable power virus; open item 4 in
+             * docs/blackwell-cuda-notes.md says that may have inverted. */
+            *inT = CUDA_R_64F; *outT = CUDA_R_64F; *cT = CUBLAS_COMPUTE_64F;
+            break;
+        case GPL_PREC_INT8:
+            /* INT8 tensor path. Note .kind::i8 is excluded from the f-family
+             * targets, so on Blackwell this exercises a different code path
+             * to the float kinds. */
+            *inT = CUDA_R_8I; *outT = CUDA_R_32I; *cT = CUBLAS_COMPUTE_32I;
+            break;
         case GPL_PREC_FP8:
             /* FP8 requires cublasLtMatmul; not supported in this v0.1 path. */
         default:
@@ -67,8 +81,9 @@ static void prec_to_cublas(gpl_prec_t p,
 int gpl_workload_gemm_run(gpl_workload_ctx_t *ctx) {
     const gpl_args_t *a = ctx->args;
 
-    if (a->precision == GPL_PREC_FP8) {
-        ctx->error = "fp8 not implemented in v0.1 (requires cublasLtMatmul)";
+    if (a->precision == GPL_PREC_FP8 || a->precision == GPL_PREC_FP4) {
+        ctx->error = "fp8/fp4 need cublasLtMatmul: use --op powervirus "
+                     "--tensor-backend cublas, which routes them through gemm_lt";
         gpl_errf("%s", ctx->error);
         return -1;
     }
@@ -77,6 +92,11 @@ int gpl_workload_gemm_run(gpl_workload_ctx_t *ctx) {
     const int nstreams = a->streams;
     const size_t eb = elem_bytes(a->precision);
     const size_t bytes = (size_t)N * (size_t)N * eb;
+    /* INT8 multiplies 8-bit inputs into a 32-bit accumulator, so C needs four
+     * times the input element size. Sizing C off the input would
+     * under-allocate by 4x and let cuBLAS write past the buffer. */
+    const size_t out_bytes = (a->precision == GPL_PREC_INT8)
+        ? (size_t)N * (size_t)N * 4 : bytes;
 
     cudaDataType inT, outT;
     cublasComputeType_t cT;
@@ -92,8 +112,8 @@ int gpl_workload_gemm_run(gpl_workload_ctx_t *ctx) {
     CUDA_OK(cudaMemset(dA, 0x3c, bytes));   /* fp16 ~1.0-ish; harmless bit pattern */
     CUDA_OK(cudaMemset(dB, 0x3c, bytes));
     for (int i = 0; i < nstreams; i++) {
-        CUDA_OK(cudaMalloc(&dC[i], bytes));
-        CUDA_OK(cudaMemsetAsync(dC[i], 0, bytes, 0));
+        CUDA_OK(cudaMalloc(&dC[i], out_bytes));
+        CUDA_OK(cudaMemsetAsync(dC[i], 0, out_bytes, 0));
     }
 
     cudaStream_t *streams = (cudaStream_t *)calloc(nstreams, sizeof(cudaStream_t));
@@ -122,9 +142,13 @@ int gpl_workload_gemm_run(gpl_workload_ctx_t *ctx) {
      * directly: 0x3C00 is 1.0, 0x0000 is 0.0. cuBLAS only reads the 16
      * bits, and this keeps the file out of nvcc. */
     unsigned short alpha_h = 0x3C00, beta_h = 0x0000;
+    double alpha_d = 1.0, beta_d = 0.0;
+    int    alpha_i = 1,   beta_i = 0;
     void *alpha_p, *beta_p;
-    if (cT == CUBLAS_COMPUTE_16F) { alpha_p = &alpha_h; beta_p = &beta_h; }
-    else                          { alpha_p = &alpha_f; beta_p = &beta_f; }
+    if      (cT == CUBLAS_COMPUTE_16F) { alpha_p = &alpha_h; beta_p = &beta_h; }
+    else if (cT == CUBLAS_COMPUTE_64F) { alpha_p = &alpha_d; beta_p = &beta_d; }
+    else if (cT == CUBLAS_COMPUTE_32I) { alpha_p = &alpha_i; beta_p = &beta_i; }
+    else                               { alpha_p = &alpha_f; beta_p = &beta_f; }
 
     /* Prime the pipes so first-call overhead isn't billed to warmup. */
     for (int i = 0; i < nstreams; i++) {

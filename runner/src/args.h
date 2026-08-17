@@ -17,12 +17,24 @@ typedef enum {
     GPL_OP_OBSERVE,
 } gpl_op_t;
 
+/* Declared at file scope, not inside gpl_args_t: an unnamed enum nested in a
+ * struct scopes its enumerators to that struct under C++, which would make
+ * GPL_RAMP_NONE unreachable from the .cu translation units. */
+typedef enum {
+    GPL_RAMP_NONE = 0,
+    GPL_RAMP_LINEAR,
+    GPL_RAMP_EXP,
+} gpl_ramp_t;
+
 typedef enum {
     GPL_PREC_FP32 = 1,
     GPL_PREC_TF32,
     GPL_PREC_FP16,
     GPL_PREC_BF16,
     GPL_PREC_FP8,
+    GPL_PREC_FP64,
+    GPL_PREC_INT8,
+    GPL_PREC_FP4,
 } gpl_prec_t;
 
 typedef struct {
@@ -54,10 +66,24 @@ typedef struct {
     int        mix_tensor;
     int        mix_fma;
     int        mix_dram;
+    /* The rest of the attribution ladder: each isolates one more unit, so
+     * its marginal watts can be read off and pairs can expose the
+     * interaction term. */
+    int        mix_sfu;      /* transcendentals */
+    int        mix_int32;    /* integer pipe */
+    int        mix_smem;     /* shared memory / L1 */
+    int        mix_l2;       /* L2-resident streaming */
+    int        mix_atomic;   /* atomics, resolved in L2 */
 
     /* --- O2: duty-cycle modulation. on_ms <= 0 disables. --- */
     double     duty_on_ms;
     double     duty_off_ms;
+    /* Edge shape. A square wave is the worst case for upstream power
+     * delivery; a ramped edge is what a considerate scheduler would do
+     * instead. Measuring both says how much of the transient hazard is
+     * inherent and how much is just an implementation choice. */
+    gpl_ramp_t duty_ramp;
+    double     duty_ramp_ms;   /* edge duration; 0 = a quarter of on-time */
 
     /* --- Fixed-work mode: >0 means run exactly this many steady
      * iterations and measure elapsed time, instead of running to the
@@ -66,6 +92,14 @@ typedef struct {
 
     /* --- Platform control --- */
     bool       raise_power_limit;  /* set enforced limit to device max */
+    /* Set the enforced limit to an explicit value in watts before measuring.
+     * This is what makes a cap sweep possible: on a part whose default limit
+     * is already its maximum there is nothing to raise into, but there is
+     * plenty of room below - and the EDP-vs-cap curve, the throughput cost
+     * of capping, and the chance of catching an over-limit excursion all
+     * live down there. 0 = leave alone. */
+    double     power_limit_w;
+    bool       lock_clocks;        /* pin SM clock (boost-off profile) */
     bool       probe;              /* capability probe, then exit */
 } gpl_args_t;
 

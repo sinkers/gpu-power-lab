@@ -22,10 +22,19 @@ void gpl_args_defaults(gpl_args_t *a) {
     a->mix_tensor = 1;
     a->mix_fma = 1;
     a->mix_dram = 1;
+    a->mix_sfu = 0;
+    a->mix_int32 = 0;
+    a->mix_smem = 0;
+    a->mix_l2 = 0;
+    a->mix_atomic = 0;
     a->duty_on_ms = 0.0;
     a->duty_off_ms = 0.0;
+    a->duty_ramp = GPL_RAMP_NONE;
+    a->duty_ramp_ms = 0.0;
     a->iters = 0;
     a->raise_power_limit = false;
+    a->power_limit_w = 0.0;
+    a->lock_clocks = false;
     a->probe = false;
 }
 
@@ -47,6 +56,9 @@ const char *gpl_prec_name(gpl_prec_t p) {
         case GPL_PREC_FP16: return "fp16";
         case GPL_PREC_BF16: return "bf16";
         case GPL_PREC_FP8:  return "fp8";
+        case GPL_PREC_FP64: return "fp64";
+        case GPL_PREC_INT8: return "int8";
+        case GPL_PREC_FP4:  return "fp4";
         default:            return "unknown";
     }
 }
@@ -67,6 +79,9 @@ static int parse_prec(const char *s, gpl_prec_t *out) {
     else if (!strcmp(s, "fp16")) *out = GPL_PREC_FP16;
     else if (!strcmp(s, "bf16")) *out = GPL_PREC_BF16;
     else if (!strcmp(s, "fp8"))  *out = GPL_PREC_FP8;
+    else if (!strcmp(s, "fp64")) *out = GPL_PREC_FP64;
+    else if (!strcmp(s, "int8")) *out = GPL_PREC_INT8;
+    else if (!strcmp(s, "fp4"))  *out = GPL_PREC_FP4;
     else return -1;
     return 0;
 }
@@ -78,7 +93,8 @@ static void usage(FILE *f, const char *argv0) {
         "Workload:\n"
         "  --op OP                sgemm | fft | memstream | powervirus | observe\n""                         observe = sample only, drive nothing: for\n""                         measuring an external workload or the idle floor\n"
         "                                                           (default: sgemm)\n"
-        "  --precision PREC       fp32 | tf32 | fp16 | bf16 | fp8   (default: fp32)\n"
+        "  --precision PREC       fp32 | tf32 | fp16 | bf16 | fp8 | fp64 | int8 | fp4\n"
+        "                                                           (default: fp32)\n"
         "  --size N               square matrix dimension           (default: 4096)\n"
         "  --streams N            number of CUDA streams            (default: 1)\n"
         "\n"
@@ -89,6 +105,11 @@ static void usage(FILE *f, const char *argv0) {
         "                         Blackwell that is the path to tcgen05.\n"
         "  --mix-fma N            FP32 FFMA-chain warps             (default: 1)\n"
         "  --mix-dram N           DRAM-streaming warps              (default: 1)\n"
+        "  --mix-sfu N            transcendental (SFU) warps        (default: 0)\n"
+        "  --mix-int32 N          integer-pipe warps                (default: 0)\n"
+        "  --mix-smem N           shared-memory warps               (default: 0)\n"
+        "  --mix-l2 N             L2-resident streaming warps       (default: 0)\n"
+        "  --mix-atomic N         atomic (L2) warps                 (default: 0)\n"
         "\n"
         "Timing:\n"
         "  --warmup-sec S         warm-up phase seconds             (default: 5)\n"
@@ -99,6 +120,11 @@ static void usage(FILE *f, const char *argv0) {
         "                         Required for meaningful EDP / EDPp.\n"
         "  --duty-on-ms MS        O2: burst length at full blast    (0 = off)\n"
         "  --duty-off-ms MS       O2: idle gap between bursts\n"
+        "  --duty-ramp SHAPE      none | linear | exp  (default: none)\n"
+        "                         shape of the rising/falling edge. A square\n"
+        "                         wave is the worst case upstream; a ramp is\n"
+        "                         what a considerate scheduler would do.\n"
+        "  --duty-ramp-ms MS      edge duration (default: a quarter of on-time)\n"
         "\n"
         "Device / output:\n"
         "  --device N             CUDA device index                 (default: 0)\n"
@@ -108,6 +134,11 @@ static void usage(FILE *f, const char *argv0) {
         "  --stop-on-throttle     abort steady phase on first throttle event\n"
         "  --raise-power-limit    set the enforced power limit to the device\n"
         "                         maximum before measuring (needs root)\n"
+        "  --power-limit W        set the enforced limit to W watts. Needed for\n"
+        "                         a cap sweep: parts whose default already is\n"
+        "                         the maximum have no headroom above, but the\n"
+        "                         interesting curve is below.\n"
+        "  --lock-clocks          pin the SM clock (boost-off, reproducible)\n"
         "  --probe                report what this platform permits, then exit\n"
         "\n"
         "  -h, --help             show this help and exit\n",
@@ -134,10 +165,19 @@ int gpl_args_parse(int argc, char **argv, gpl_args_t *a) {
         {"tensor-backend",    required_argument, 0, 1009},
         {"mix-fma",           required_argument, 0, 1002},
         {"mix-dram",          required_argument, 0, 1003},
+        {"mix-sfu",           required_argument, 0, 1012},
+        {"mix-int32",         required_argument, 0, 1013},
+        {"mix-smem",          required_argument, 0, 1014},
+        {"mix-l2",            required_argument, 0, 1015},
+        {"mix-atomic",        required_argument, 0, 1016},
         {"duty-on-ms",        required_argument, 0, 1004},
         {"duty-off-ms",       required_argument, 0, 1005},
+        {"duty-ramp",         required_argument, 0, 1017},
+        {"duty-ramp-ms",      required_argument, 0, 1018},
         {"iters",             required_argument, 0, 1006},
         {"raise-power-limit", no_argument,       0, 1007},
+        {"power-limit",       required_argument, 0, 1010},
+        {"lock-clocks",       no_argument,       0, 1011},
         {"probe",             no_argument,       0, 1008},
         {"help",              no_argument,       0, 'h'},
         {0, 0, 0, 0}
@@ -174,10 +214,24 @@ int gpl_args_parse(int argc, char **argv, gpl_args_t *a) {
                 break;
             case 1002: a->mix_fma = atoi(optarg); break;
             case 1003: a->mix_dram = atoi(optarg); break;
+            case 1012: a->mix_sfu = atoi(optarg); break;
+            case 1013: a->mix_int32 = atoi(optarg); break;
+            case 1014: a->mix_smem = atoi(optarg); break;
+            case 1015: a->mix_l2 = atoi(optarg); break;
+            case 1016: a->mix_atomic = atoi(optarg); break;
             case 1004: a->duty_on_ms = atof(optarg); break;
             case 1005: a->duty_off_ms = atof(optarg); break;
+            case 1017:
+                if      (!strcmp(optarg, "none"))   a->duty_ramp = GPL_RAMP_NONE;
+                else if (!strcmp(optarg, "linear")) a->duty_ramp = GPL_RAMP_LINEAR;
+                else if (!strcmp(optarg, "exp"))    a->duty_ramp = GPL_RAMP_EXP;
+                else { fprintf(stderr, "invalid --duty-ramp: %s\n", optarg); return 2; }
+                break;
+            case 1018: a->duty_ramp_ms = atof(optarg); break;
             case 1006: a->iters = atoll(optarg); break;
             case 1007: a->raise_power_limit = true; break;
+            case 1010: a->power_limit_w = atof(optarg); break;
+            case 1011: a->lock_clocks = true; break;
             case 1008: a->probe = true; break;
             case 'h': usage(stdout, argv[0]); return 1;
             default:  usage(stderr, argv[0]); return 2;
@@ -188,11 +242,14 @@ int gpl_args_parse(int argc, char **argv, gpl_args_t *a) {
     if (a->op == GPL_OP_OBSERVE) return 0;  /* nothing to configure */
 
     if (a->size < 16) { fprintf(stderr, "--size too small\n"); return 2; }
-    if (a->mix_tensor < 0 || a->mix_fma < 0 || a->mix_dram < 0) {
+    if (a->mix_tensor < 0 || a->mix_fma < 0 || a->mix_dram < 0 ||
+        a->mix_sfu < 0 || a->mix_int32 < 0 || a->mix_smem < 0 ||
+        a->mix_l2 < 0 || a->mix_atomic < 0) {
         fprintf(stderr, "--mix-* weights must be >= 0\n"); return 2;
     }
     if (a->op == GPL_OP_POWERVIRUS &&
-        a->mix_tensor + a->mix_fma + a->mix_dram == 0) {
+        a->mix_tensor + a->mix_fma + a->mix_dram + a->mix_sfu +
+        a->mix_int32 + a->mix_smem + a->mix_l2 + a->mix_atomic == 0) {
         fprintf(stderr, "powervirus needs at least one non-zero --mix-* weight\n");
         return 2;
     }

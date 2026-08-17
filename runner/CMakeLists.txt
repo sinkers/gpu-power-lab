@@ -88,6 +88,7 @@ add_executable(gpu-power-runner
     src/workload_gemm.c
     src/workload_memstream.cu
     src/workload_powervirus.cu
+    src/gemm_lt.cu
     src/probe.c
     src/workload_observe.c
     src/workload_fft.c
@@ -101,6 +102,7 @@ target_include_directories(gpu-power-runner PRIVATE src)
 target_link_libraries(gpu-power-runner PRIVATE
     CUDA::cudart
     CUDA::cublas
+    CUDA::cublasLt
     CUDA::cufft
     CUDA::nvml
     m
