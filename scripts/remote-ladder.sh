@@ -55,24 +55,39 @@ echo "==> O1 attribution ladder"
 # limit is in force, so it stays valid without root.
 "${SSH[@]}" 'cd ~/gpu-power-lab/runner
 cat > /tmp/ladder.sh <<'"'"'INNER'"'"'
-run() {
+run() {  # mixT mixF mixD backend label
   ./build/gpu-power-runner --op powervirus \
-    --mix-tensor $1 --mix-fma $2 --mix-dram $3 \
+    --mix-tensor $1 --mix-fma $2 --mix-dram $3 --tensor-backend $4 \
+    --precision fp16 --size 4096 \
     --warmup-sec 4 --steady-sec 15 --sample-hz 100 \
-    --out-summary /tmp/r.json >/dev/null 2>&1
+    --out-summary "/tmp/rung-$5.json" >/dev/null 2>&1
   python3 -c "
-import json;d=json.load(open('/tmp/r.json'));p=d['power'];t=d['transient']
-print('%-14s avg %6.1fW  %%TDP %5.1f  clk %4.0fMHz  gap %5.1f%%  hz %5.1f  throttle=%s'%(
- '$4',p['avg_w'],p['pct_of_tdp'],d['clocks']['sm_avg_mhz'],
+import json;d=json.load(open('/tmp/rung-$5.json'));p=d['power'];t=d['transient']
+print('%-26s avg %6.1fW  %%TDP %5.1f  clk %4.0fMHz  gap %5.1f%%  hz %5.1f  throttle=%s'%(
+ '$5',p['avg_w'],p['pct_of_tdp'],d['clocks']['sm_avg_mhz'],
  t['energy_gap_pct'],t['sample_hz_achieved'],
  ','.join(d['throttle']['reasons']) or '-'))"
 }
-run 1 0 0 tensor-only
-run 0 1 0 fma-only
-run 0 0 1 dram-only
-run 1 1 1 mix-1:1:1
-run 1 7 0 fma7-tensor1
-run 7 1 0 tensor7-fma1
+
+# Single-unit baselines.
+run 0 1 0 wmma   fma-only
+run 0 0 1 wmma   dram-only
+run 1 0 0 wmma   tensor-only-wmma
+run 1 0 0 cublas tensor-only-cublas
+
+# THE DECISIVE COMPARISON.
+# wmma is warp-synchronous and must displace FMA warps to run. cuBLAS on
+# Blackwell reaches tcgen05, which is async and single-thread-issued, so it
+# need not displace anything.
+#   If cublas-tensor+fma EXCEEDS fma-only  -> the units overlap; the
+#      mixed-unit power virus is real on this architecture.
+#   If it lands BELOW fma-only             -> still competing, exactly as
+#      Ampere behaved, and powervirus is an FFMA saturator.
+run 1 1 0 wmma   mix-tensor-fma-wmma
+run 1 1 0 cublas mix-tensor-fma-cublas
+run 2 1 0 cublas mix-tensor2-fma1-cublas
+run 1 2 0 cublas mix-tensor1-fma2-cublas
+run 1 1 1 cublas mix-all-three-cublas
 INNER
 bash /tmp/ladder.sh'
 
