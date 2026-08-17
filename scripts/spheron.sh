@@ -59,13 +59,17 @@ cmd_deploy() {
     [ -f "${KEY_PATH}.pub" ] || { echo "no public key at ${KEY_PATH}.pub" >&2; exit 1; }
     local pub; pub="$(cat "${KEY_PATH}.pub")"
 
-    # cloud-init does the whole build on first boot, so the box is ready to
-    # measure the moment SSH answers. Nothing here needs the GPU, so it runs
-    # while the instance is still provisioning.
+    # cloud-init installs the driver and toolchain during provisioning, so the
+    # box is measurement-ready when SSH answers rather than 8-10 minutes after.
+    # startup-script.sh is shipped via writeFiles so there is one source of
+    # truth shared with hand-launched boxes.
+    local startup
+    startup="$(cat "$(dirname "$0")/startup-script.sh")"
+
     local body
-    body=$(python3 - "$offer" "$gputype" "$region" "$count" "$pub" <<'PY'
+    body=$(python3 - "$offer" "$gputype" "$region" "$count" "$pub" "$startup" <<'PY'
 import json,sys
-offer,gputype,region,count,pub = sys.argv[1:6]
+offer,gputype,region,count,pub,startup = sys.argv[1:7]
 print(json.dumps({
   "provider": "spheron-ai",
   "offerId": offer,
@@ -77,12 +81,15 @@ print(json.dumps({
   "ssh_public_key": pub,
   "name": "gpu-power-lab",
   "cloudInit": {
-    "packages": ["cmake", "build-essential", "python3", "rsync", "git"],
-    "runcmd": [
-      "nvidia-smi -q > /var/log/gpu-power-lab-nvidia.txt 2>&1 || true",
-      "nvcc --version > /var/log/gpu-power-lab-nvcc.txt 2>&1 || true",
-      "touch /var/log/gpu-power-lab-ready"
-    ]
+    "packages": ["wget", "curl", "git", "cmake", "build-essential",
+                 "python3", "rsync"],
+    "writeFiles": [{
+      "path": "/opt/gpu-power-lab-startup.sh",
+      "content": startup,
+      "owner": "root:root",
+      "permissions": "0755"
+    }],
+    "runcmd": ["bash /opt/gpu-power-lab-startup.sh"]
   }
 }))
 PY
