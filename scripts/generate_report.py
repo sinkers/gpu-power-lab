@@ -99,6 +99,7 @@ def table_rows(rungs):
     for i, r in enumerate(ranked):
         p = r["power"]
         reasons = ", ".join(r["throttle"]["reasons"]) or "none"
+        eff = r.get("efficiency", {})
         out.append(
             f'          <tr{" class=\"best\"" if i == 0 else ""}>'
             f'<td>{html.escape(r["_name"])}</td>'
@@ -109,6 +110,171 @@ def table_rows(rungs):
             f'<td>{html.escape(reasons)}</td></tr>'
         )
     return "\n".join(out)
+
+
+
+# ---------------------------------------------------------------------------
+# Sample trace: every sample, not a summary of them.
+#
+# A mean hides everything this project cares about. The trace renders the full
+# NDJSON as a min/max envelope per pixel column with the mean drawn through it,
+# so a spike narrower than one column still shows as envelope height rather
+# than being averaged away. Naive downsampling would erase exactly the
+# behaviour we are trying to measure.
+# ---------------------------------------------------------------------------
+
+def load_trace(path):
+    """Read an NDJSON telemetry file into parallel lists."""
+    t, pw, pi, temp, phase = [], [], [], [], []
+    with open(path) as f:
+        for i, line in enumerate(f):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                r = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            t.append(i)
+            pw.append(r.get("power_w", 0.0))
+            v = r.get("power_instant_w", -1.0)
+            pi.append(v if v is not None and v >= 0 else None)
+            temp.append(r.get("temp_c", 0.0))
+            phase.append(r.get("phase", ""))
+    return {"t": t, "pw": pw, "pi": pi, "temp": temp, "phase": phase}
+
+
+def envelope(vals, cols):
+    """Bucket into `cols` columns, returning (min, max, mean) per column.
+    None entries are skipped; empty buckets are dropped."""
+    n = len(vals)
+    if n == 0:
+        return []
+    per = max(1, n / float(cols))
+    out = []
+    for c in range(cols):
+        lo_i, hi_i = int(c * per), int((c + 1) * per)
+        chunk = [v for v in vals[lo_i:max(hi_i, lo_i + 1)] if v is not None]
+        if not chunk:
+            continue
+        out.append((c, min(chunk), max(chunk), sum(chunk) / len(chunk)))
+    return out
+
+
+def svg_trace(vals, cols, width, height, y_min, y_max, color, soft,
+              rules=(), y_label="", x_label=""):
+    """Envelope + mean line as inline SVG. `rules` is a list of
+    (value, label, dashed) drawn as horizontal reference lines."""
+    env = envelope(vals, cols)
+    if not env:
+        return '<p class="nodata">no samples</p>'
+
+    pad_l, pad_r, pad_t, pad_b = 58, 92, 12, 26
+    pw_ = width - pad_l - pad_r
+    ph_ = height - pad_t - pad_b
+    span = (y_max - y_min) or 1.0
+
+    def x(c):  return pad_l + (c / float(max(cols - 1, 1))) * pw_
+    def y(v):  return pad_t + ph_ - ((v - y_min) / span) * ph_
+
+    top = " ".join(f"{x(c):.1f},{y(hi):.1f}" for c, lo, hi, m in env)
+    bot = " ".join(f"{x(c):.1f},{y(lo):.1f}" for c, lo, hi, m in reversed(env))
+    mean_pts = " ".join(f"{x(c):.1f},{y(m):.1f}" for c, lo, hi, m in env)
+
+    # Reference lines sit at their true value, but their labels are nudged
+    # apart when two rules land within a line-height of each other - the cap
+    # and the peak often nearly coincide, which is exactly the case where
+    # both labels need to stay readable.
+    placed = []
+    rule_svg = []
+    for val, label, dashed in sorted([r for r in rules if y_min <= r[0] <= y_max],
+                                     key=lambda r: -r[0]):
+        yy = y(val)
+        ly = yy + 4
+        for prev in placed:
+            if abs(ly - prev) < 13:
+                ly = prev + 13
+        placed.append(ly)
+        rule_svg.append(
+            f'<line x1="{pad_l}" y1="{yy:.1f}" x2="{pad_l + pw_}" y2="{yy:.1f}" '
+            f'class="rule{" dash" if dashed else ""}"/>'
+            f'<text x="{pad_l + pw_ + 8}" y="{ly:.1f}" class="rlab">{label}</text>')
+
+    ticks = []
+    for frac in (0.0, 0.5, 1.0):
+        v = y_min + frac * span
+        yy = y(v)
+        ticks.append(f'<text x="{pad_l - 10}" y="{yy + 4:.1f}" class="ytick">{v:,.0f}</text>')
+
+    return (
+        f'<svg viewBox="0 0 {width} {height}" width="100%" height="{height}" '
+        f'role="img" aria-label="{html.escape(y_label)} over time">'
+        f'<polygon class="env" points="{top} {bot}" fill="{soft}"/>'
+        f'<polyline class="meanline" points="{mean_pts}" stroke="{color}"/>'
+        + "".join(rule_svg) + "".join(ticks) +
+        f'<text x="{pad_l}" y="{height - 6}" class="xlab">{html.escape(x_label)}</text>'
+        f'<text x="6" y="{pad_t + 10}" class="ylab">{html.escape(y_label)}</text>'
+        f'</svg>')
+
+
+def trace_figure(dirpath, name, limit, title, caption):
+    """Two stacked panels sharing an x axis: power, then temperature.
+    Deliberately not a dual-axis chart - two measures of different scale get
+    two plots, never two y-scales on one."""
+    # Campaigns name traces either <rung>.ndjson or rung-<rung>.ndjson,
+    # depending on how the sweep script invoked --out-metrics.
+    path = None
+    for cand in (name + ".ndjson", "rung-" + name + ".ndjson"):
+        c = os.path.join(dirpath, cand)
+        if os.path.exists(c):
+            path = c
+            break
+    if path is None:
+        return ""
+    tr = load_trace(path)
+    if not tr["t"]:
+        return ""
+
+    n = len(tr["t"])
+    pw = [v for v in tr["pw"] if v is not None]
+    peak, mean = max(pw), sum(pw) / len(pw)
+    srt = sorted(pw)
+    p99 = srt[min(len(srt) - 1, int(0.99 * len(srt)))]
+    temps = [v for v in tr["temp"] if v]
+    cols = 600
+
+    power_svg = svg_trace(
+        tr["pw"], cols, 1000, 250, 0, limit * 1.09,
+        "var(--signal)", "var(--signal-soft)",
+        rules=[(limit, f"{fmt(limit,0)} W cap", True),
+               (peak, f"peak {fmt(peak)} W", False),
+               (mean, f"mean {fmt(mean)} W", False)],
+        y_label="watts", x_label=f"{n:,} samples")
+
+    temp_svg = ""
+    if temps:
+        tmax, tmean = max(temps), sum(temps) / len(temps)
+        temp_svg = (
+            '<div class="panelgap"></div>' +
+            svg_trace(tr["temp"], cols, 1000, 170,
+                      max(0, min(temps) - 5), tmax + 5,
+                      "var(--oxide)", "var(--oxide-soft)",
+                      rules=[(tmax, f"peak {fmt(tmax,0)} °C", False),
+                             (tmean, f"mean {fmt(tmean,0)} °C", False)],
+                      y_label="°C", x_label="same window"))
+
+    stats = (f'<div class="tracestats">'
+             f'<span><b>{fmt(peak)} W</b> peak</span>'
+             f'<span><b>{fmt(p99)} W</b> p99</span>'
+             f'<span><b>{fmt(mean)} W</b> mean</span>'
+             f'<span><b>{fmt(peak - min(pw))} W</b> observed range</span>'
+             f'<span><b>{n:,}</b> samples</span>'
+             + (f'<span><b>{fmt(max(temps),0)} °C</b> peak temp</span>' if temps else '')
+             + '</div>')
+
+    return (f'    <figure>\n      <div class="figtitle">{html.escape(title)}</div>\n'
+            f'      <div class="chart trace">{stats}{power_svg}{temp_svg}</div>\n'
+            f'      <figcaption>{html.escape(caption)}</figcaption>\n    </figure>')
 
 
 CSS = """
@@ -205,6 +371,26 @@ CSS = """
   .legend i.alt { background:var(--oxide); }
   .legend i.dash { width:1rem; height:0; border-top:1.5px dashed var(--ceiling);
                    border-radius:0; }
+  .trace { padding:1.3rem 1.2rem 1rem; }
+  .trace svg { display:block; }
+  .env { stroke:none; }
+  .meanline { fill:none; stroke-width:1.5; }
+  .rule { stroke:var(--ink-2); stroke-width:1; opacity:.65; }
+  .rule.dash { stroke-dasharray:5 4; opacity:.9; }
+  .rlab, .ytick, .xlab, .ylab { font-family:var(--mono); font-size:11px;
+                                fill:var(--muted); }
+  .rlab { fill:var(--ink-2); }
+  .ytick { text-anchor:end; }
+  .tracestats { display:flex; flex-wrap:wrap; gap:1.4rem; font-family:var(--mono);
+                font-size:var(--step--1); color:var(--muted);
+                padding-bottom:1rem; margin-bottom:.4rem;
+                border-bottom:1px solid var(--rule); }
+  .tracestats b { color:var(--ink); font-weight:600;
+                  font-variant-numeric:tabular-nums; }
+  .figtitle { font-family:var(--mono); font-size:var(--step--1);
+              letter-spacing:.1em; text-transform:uppercase; color:var(--muted); }
+  .panelgap { height:.7rem; }
+  .nodata { font-family:var(--mono); font-size:var(--step--1); color:var(--muted); }
   .rangerow { position:relative; height:2.1rem; background:var(--surface-sunk); }
   .band { position:absolute; top:0; bottom:0; background:var(--signal-soft);
           border-left:3px solid var(--signal); border-right:3px solid var(--signal); }
@@ -259,7 +445,7 @@ CSS = """
 """
 
 
-def render(rungs, duty, story, out_path):
+def render(rungs, duty, story, out_path, campaign_dir=None):
     # story.json may carry {"backends": {"<rung>": "cublas"|"wmma"|"none"}} for
     # campaigns whose summaries predate the runner echoing the backend.
     bmap = (story or {}).get("backends", {})
@@ -367,6 +553,35 @@ def render(rungs, duty, story, out_path):
     sections = render_sections("sections")
     closing = render_sections("closing")
 
+    # Sample traces, for every rung that kept its NDJSON. Without --out-metrics
+    # there is nothing to draw; the summary alone cannot show spikiness.
+    tdir = campaign_dir or os.path.dirname(out_path) or "."
+    trace_figs = []
+    for r in sorted(rungs, key=lambda r: -r["power"]["avg_w"]):
+        fig = trace_figure(tdir, r["_name"], limit,
+                           f'{r["_name"]} — every sample',
+                           s.get("trace_caption", ""))
+        if fig:
+            trace_figs.append(fig)
+    duty_fig = trace_figure(tdir, "duty", limit,
+                            "duty cycle — every sample",
+                            s.get("trace_caption", ""))
+    if duty_fig:
+        trace_figs.insert(0, duty_fig)
+
+    if trace_figs:
+        traces = ('  <section>\n    <p class="eyebrow">Raw telemetry</p>\n'
+                  '    <h2>' + html.escape(s.get("trace_title", "Every sample")) + '</h2>\n'
+                  '    <div class="prose">' + s.get("trace_prose", "") + '</div>\n'
+                  + "\n".join(trace_figs) + '\n  </section>')
+    else:
+        traces = ('  <section>\n    <p class="eyebrow">Raw telemetry</p>\n'
+                  '    <h2>Every sample</h2>\n    <div class="prose">'
+                  '<p>No per-sample traces in this campaign — the rungs were run '
+                  'without <code>--out-metrics</code>, so only the aggregates '
+                  'survive. Summary statistics cannot show spikiness; keep the '
+                  'NDJSON.</p></div>\n  </section>')
+
     page = f"""<title>{html.escape(title)}</title>
 <style>{CSS}</style>
 <div class="wrap">
@@ -417,13 +632,16 @@ def render(rungs, duty, story, out_path):
 {sections}
 {swing_html}
 
+{traces}
+
   <section>
     <p class="eyebrow">Full data</p>
     <h2>Every rung</h2>
     <div class="tablewrap">
       <table>
         <thead><tr><th>Rung</th><th>Tensor backend</th><th>Mean W</th>
-          <th>% of limit</th><th>SM clock</th><th>Throttle</th></tr></thead>
+          <th>% of limit</th><th>SM clock</th><th>Peak °C</th>
+          <th>EDP</th><th>EDPp</th><th>Throttle</th></tr></thead>
         <tbody>
 {table_rows(rungs)}
         </tbody>
@@ -460,7 +678,7 @@ def main():
         with open(story_path) as f:
             story = json.load(f)
     out = a.out or os.path.join(a.campaign_dir, "report.html")
-    render(rungs, duty, story, out)
+    render(rungs, duty, story, out, campaign_dir=a.campaign_dir)
 
 
 if __name__ == "__main__":

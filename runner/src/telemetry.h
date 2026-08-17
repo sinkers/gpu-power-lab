@@ -70,6 +70,7 @@ typedef struct {
     /* Capability flags, resolved once at start. */
     bool have_instant;
     bool have_violation;
+    bool have_temp_mem;
 
     /* Shared state */
     GPL_ATOMIC(gpl_phase_t) phase;

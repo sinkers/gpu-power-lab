@@ -80,5 +80,8 @@
     "mix-tensor-fma-wmma": "wmma",
     "dram-only": "none",
     "fma-only": "none"
-  }
+  },
+  "trace_title": "Every sample, not a summary of them",
+  "trace_prose": "<p>A mean hides everything this project is about. Where a rung kept its per-sample telemetry, the trace below shows it as a min/max envelope per pixel column with the mean drawn through — so a spike lasting a single sample still registers as envelope height rather than being averaged away.</p>",
+  "trace_caption": "Envelope is per-column min and max; the line through it is the per-column mean. Horizontal rules mark the enforced limit, the observed peak and the overall mean."
 }

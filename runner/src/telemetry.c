@@ -105,7 +105,7 @@ static void *sampler_thread(void *arg) {
 
         /* Sample. */
         unsigned int power_mw = 0;
-        unsigned int temp_gpu = 0;
+        unsigned int temp_gpu = 0, temp_mem = 0;
         unsigned int clock_sm = 0, clock_mem = 0;
         nvmlUtilization_t util = {0};
         unsigned long long energy_mj = 0;
@@ -141,6 +141,23 @@ static void *sampler_thread(void *arg) {
             }
         }
         nvmlDeviceGetTemperature(t->device, NVML_TEMPERATURE_GPU, &temp_gpu);
+        /* HBM temperature, where the part exposes it. On stacked-memory parts
+         * this is often the binding thermal limit rather than the core, so a
+         * soak run that only watches the core can miss why power droops.
+         * nvmlTemperatureSensors_t has no memory sensor - GPU is the only
+         * member - so this comes through the field-value API instead. */
+#ifdef NVML_FI_DEV_MEMORY_TEMP
+        if (t->have_temp_mem) {
+            nvmlFieldValue_t fvm;
+            memset(&fvm, 0, sizeof(fvm));
+            fvm.fieldId = NVML_FI_DEV_MEMORY_TEMP;
+            if (nvmlDeviceGetFieldValues(t->device, 1, &fvm) == NVML_SUCCESS &&
+                fvm.nvmlReturn == NVML_SUCCESS) {
+                temp_mem = (fvm.valueType == NVML_VALUE_TYPE_UNSIGNED_INT)
+                             ? fvm.value.uiVal : (unsigned int)fvm.value.ullVal;
+            }
+        }
+#endif
         nvmlDeviceGetClockInfo(t->device, NVML_CLOCK_SM, &clock_sm);
         nvmlDeviceGetClockInfo(t->device, NVML_CLOCK_MEM, &clock_mem);
         nvmlDeviceGetUtilizationRates(t->device, &util);
@@ -208,6 +225,7 @@ static void *sampler_thread(void *arg) {
                 "\"sm_mhz\":%u,\"mem_mhz\":%u,"
                 "\"sm_util\":%u,\"mem_util\":%u,"
                 "\"energy_mj\":%llu,\"throttle_mask\":%llu,\"fan_pct\":%u,"
+                "\"temp_mem_c\":%u,"
                 "\"power_instant_w\":%.3f,\"source\":\"%s\"}\n",
                 ts, t->rung_id ? t->rung_id : "", phase_name(phase),
                 power_w, temp_c, clock_sm, clock_mem,
@@ -215,6 +233,7 @@ static void *sampler_thread(void *arg) {
                 (unsigned long long)energy_mj,
                 (unsigned long long)reasons,
                 fan_pct,
+                temp_mem,
                 power_instant_w,
                 power_instant_w >= 0.0 ? "nvml_usage+instant" : "nvml_usage");
             /* Flush every 100 samples so tail -f is useful and a crash
@@ -258,6 +277,19 @@ int gpl_telemetry_start(gpl_telemetry_t *t, nvmlDevice_t dev, int sample_hz,
 #else
     t->have_instant = false;
 #endif
+    {
+        /* Not every part exposes an HBM sensor; probe once rather than
+         * paying a failing field query on every sample. */
+#ifdef NVML_FI_DEV_MEMORY_TEMP
+        nvmlFieldValue_t fvm;
+        memset(&fvm, 0, sizeof(fvm));
+        fvm.fieldId = NVML_FI_DEV_MEMORY_TEMP;
+        t->have_temp_mem = (nvmlDeviceGetFieldValues(dev, 1, &fvm) == NVML_SUCCESS &&
+                            fvm.nvmlReturn == NVML_SUCCESS);
+#else
+        t->have_temp_mem = false;
+#endif
+    }
     {
         nvmlViolationTime_t vio;
         t->have_violation =

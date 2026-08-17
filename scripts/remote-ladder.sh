@@ -60,7 +60,8 @@ run() {  # mixT mixF mixD backend label
     --mix-tensor $1 --mix-fma $2 --mix-dram $3 --tensor-backend $4 \
     --precision fp16 --size 4096 \
     --warmup-sec 4 --steady-sec 15 --sample-hz 100 \
-    --out-summary "/tmp/rung-$5.json" >/dev/null 2>&1
+    --out-summary "/tmp/rung-$5.json" \
+    --out-metrics "/tmp/rung-$5.ndjson" >/dev/null 2>&1
   python3 -c "
 import json;d=json.load(open('/tmp/rung-$5.json'));p=d['power'];t=d['transient']
 print('%-26s avg %6.1fW  %%TDP %5.1f  clk %4.0fMHz  gap %5.1f%%  hz %5.1f  throttle=%s'%(
@@ -107,5 +108,12 @@ if pi: print(\"  instant: min %.1f max %.1f  swing %.1f\"%(min(pi),max(pi),max(p
 else:  print(\"  instant: unavailable on this part\")"'
 
 echo
-echo "==> done. Pull the JSON with:"
-echo "    scp $HOST:/tmp/{r,d}.json results/"
+echo "==> done. Pull EVERYTHING back - summaries AND traces:"
+echo "    scp '$HOST:/tmp/rung-*.json'    results/<campaign>/"
+echo "    scp '$HOST:/tmp/rung-*.ndjson'  results/<campaign>/"
+echo "    scp '$HOST:/tmp/duty.json'      results/<campaign>/"
+echo "    scp '$HOST:/tmp/duty.ndjson'    results/<campaign>/"
+echo
+echo "    The NDJSON is the only record of what the power actually did between"
+echo "    the mean and the peak. The T2 B300 campaign lost it and the box is"
+echo "    gone; do not repeat that."

@@ -1,0 +1,85 @@
+{
+ "schema_version": 1,
+ "rung_id": "demo",
+ "invocation": {
+  "op": "powervirus",
+  "precision": "bf16",
+  "size": 8192,
+  "streams": 1,
+  "warmup_sec": 5,
+  "steady_sec": 120,
+  "sample_hz": 100,
+  "device": 0
+ },
+ "device": {
+  "uuid": "GPU-demo",
+  "name": "FIXTURE (synthetic, not a real GPU)",
+  "driver": "0.0",
+  "cuda_runtime": "0.0",
+  "vbios": "-",
+  "pci_bus_id": "-",
+  "power_limit_w": 1100.0
+ },
+ "timing": {
+  "start_utc": "2026-08-17T00:00:00Z",
+  "warmup_ms": 5000,
+  "steady_ms": 120000,
+  "wall_ms": 120000
+ },
+ "compute": {
+  "iterations": 1000,
+  "tflops_measured": 0.0
+ },
+ "power": {
+  "avg_w": 595.2676833333334,
+  "peak_w": 1085,
+  "p50_w": 0,
+  "p95_w": 0,
+  "p99_w": 0,
+  "energy_j": 71432.122,
+  "peak_instant_w": 1085,
+  "sample_source": "nvml_usage+instant",
+  "tdp_w": 1100.0,
+  "default_limit_w": 1100.0,
+  "enforced_limit_w": 1100.0,
+  "max_limit_w": 1100.0,
+  "pct_of_tdp": 54.11524393939394,
+  "pct_of_enforced_limit": 54.11524393939394
+ },
+ "efficiency": {
+  "mode": "fixed_time",
+  "work_unit": "iteration",
+  "work_done": 1000,
+  "delay_s": 120,
+  "energy_j": 71432.122,
+  "energy_per_work_j": 71.5,
+  "delay_per_work_s": 0.12,
+  "edp_j_s": 8.58,
+  "edpp_j_s2": 1.03,
+  "perf_per_watt": 0.0139
+ },
+ "thermal": {
+  "avg_c": 53.528724999999994,
+  "peak_c": 63.1,
+  "throttled_sec": 0.0
+ },
+ "throttle": {
+  "mask": 0,
+  "any_throttled": false,
+  "reasons": [],
+  "hw_power_brake_seen": false
+ },
+ "utilization": {
+  "sm_avg_pct": 100,
+  "mem_avg_pct": 60
+ },
+ "clocks": {
+  "sm_avg_mhz": 1935,
+  "sm_min_mhz": 1935,
+  "sm_max_mhz": 1935,
+  "mem_avg_mhz": 4000,
+  "sm_boost_dropped": false
+ },
+ "samples_written": 12000,
+ "result": "ok"
+}

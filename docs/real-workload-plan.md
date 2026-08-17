@@ -50,6 +50,66 @@ measured without it.
 
 ---
 
+## R0 — Thermal soak, and keeping the samples
+
+Two gaps the T2 run exposed, both cheap to close and both blocking a
+credible long-duration number.
+
+### Keep the NDJSON
+
+The B300 campaign pulled summaries and threw the per-sample traces away.
+The instance is gone, so **the highest-resolution data we have ever
+collected no longer exists** — the report can show a mean and a peak but
+cannot show the shape between them.
+
+A summary cannot answer "how spiky is it". Every rung from here on runs
+with `--out-metrics`, every campaign script pulls the NDJSON back with the
+JSON, and the report renders it. At 100 Hz a ten-minute rung is ~60k lines
+— about 8 MB uncompressed, and it compresses roughly tenfold. There is no
+reason to discard it.
+
+The report now draws the full trace as a **min/max envelope per pixel
+column with the mean through it**, rather than a downsampled line. That
+distinction matters: naive downsampling averages away exactly the narrow
+spikes the project exists to find. A spike lasting one sample still shows
+as envelope height.
+
+### Soak: 12 seconds is not a thermal measurement
+
+Every T2 rung was 12 seconds. That is long enough to rank workloads and
+far too short to say anything about temperature — a GPU takes minutes to
+reach thermal equilibrium, and the whole interesting question is what
+happens to power *after* it does.
+
+**The soak rung:** one workload, the strongest one, held for **30 minutes**
+at 100 Hz sampling. What it should reveal:
+
+- **Time to thermal equilibrium** — track dT/dt and record when it falls
+  below 0.1 °C/min. Everything measured before that point is a transient.
+- **Whether power droops as the part heats.** Leakage current rises with
+  temperature, so power can *increase* while clocks hold; or the controller
+  can start trimming clocks and power falls. Both are real behaviours and
+  they look nothing alike on a trace.
+- **When thermal throttle bits appear**, if they appear at all. T2 never
+  saw one in 12 seconds — that is not evidence they never fire.
+- **HBM temperature specifically.** On stacked-memory parts the memory
+  sensor is often the binding limit rather than the core, and a run that
+  only watches the core misses why power droops. The runner now samples it
+  via `NVML_FI_DEV_MEMORY_TEMP` (the temperature enum has no memory
+  sensor, so it comes through the field-value API).
+- **EDP and EDPp drift.** Efficiency measured cold is not efficiency
+  measured hot. If the 30-minute figure differs materially from the
+  12-second one, then every efficiency number in the T2 report carries an
+  asterisk and the soak becomes the reference measurement.
+
+Run it in **fixed-work mode** (`--iters`), so delay is measured rather than
+imposed and the EDP/EDPp numbers mean what they claim.
+
+Cost: 30 minutes of a single B300, so under $5. It should have been done
+in the T2 booking.
+
+---
+
 ## R1 — A small training workload
 
 **Question:** a training step contains the same dense GEMMs that drew 995 W

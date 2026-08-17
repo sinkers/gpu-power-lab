@@ -93,6 +93,26 @@
   .legend i.alt { background:var(--oxide); }
   .legend i.dash { width:1rem; height:0; border-top:1.5px dashed var(--ceiling);
                    border-radius:0; }
+  .trace { padding:1.3rem 1.2rem 1rem; }
+  .trace svg { display:block; }
+  .env { stroke:none; }
+  .meanline { fill:none; stroke-width:1.5; }
+  .rule { stroke:var(--ink-2); stroke-width:1; opacity:.65; }
+  .rule.dash { stroke-dasharray:5 4; opacity:.9; }
+  .rlab, .ytick, .xlab, .ylab { font-family:var(--mono); font-size:11px;
+                                fill:var(--muted); }
+  .rlab { fill:var(--ink-2); }
+  .ytick { text-anchor:end; }
+  .tracestats { display:flex; flex-wrap:wrap; gap:1.4rem; font-family:var(--mono);
+                font-size:var(--step--1); color:var(--muted);
+                padding-bottom:1rem; margin-bottom:.4rem;
+                border-bottom:1px solid var(--rule); }
+  .tracestats b { color:var(--ink); font-weight:600;
+                  font-variant-numeric:tabular-nums; }
+  .figtitle { font-family:var(--mono); font-size:var(--step--1);
+              letter-spacing:.1em; text-transform:uppercase; color:var(--muted); }
+  .panelgap { height:.7rem; }
+  .nodata { font-family:var(--mono); font-size:var(--step--1); color:var(--muted); }
   .rangerow { position:relative; height:2.1rem; background:var(--surface-sunk); }
   .band { position:absolute; top:0; bottom:0; background:var(--signal-soft);
           border-left:3px solid var(--signal); border-right:3px solid var(--signal); }
@@ -295,12 +315,19 @@ if (keep == 1.2345678e-30f) sink[0] = keep;</code></pre></div>
   </section>
 
   <section>
+    <p class="eyebrow">Raw telemetry</p>
+    <h2>Every sample</h2>
+    <div class="prose"><p>No per-sample traces in this campaign — the rungs were run without <code>--out-metrics</code>, so only the aggregates survive. Summary statistics cannot show spikiness; keep the NDJSON.</p></div>
+  </section>
+
+  <section>
     <p class="eyebrow">Full data</p>
     <h2>Every rung</h2>
     <div class="tablewrap">
       <table>
         <thead><tr><th>Rung</th><th>Tensor backend</th><th>Mean W</th>
-          <th>% of limit</th><th>SM clock</th><th>Throttle</th></tr></thead>
+          <th>% of limit</th><th>SM clock</th><th>Peak °C</th>
+          <th>EDP</th><th>EDPp</th><th>Throttle</th></tr></thead>
         <tbody>
           <tr class="best"><td>tensor-only-bf16</td><td>cuBLAS</td><td class="num">994.9</td><td class="num">90.4</td><td class="num">1,970</td><td>none</td></tr>
           <tr><td>tensor-only-cublas</td><td>cuBLAS</td><td class="num">988.8</td><td class="num">89.9</td><td class="num">1,938</td><td>none</td></tr>
