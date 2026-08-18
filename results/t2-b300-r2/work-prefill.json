@@ -1,0 +1,16 @@
+{
+ "phase": "prefill",
+ "model": "qwen72b",
+ "concurrency": 32,
+ "input_tokens": 8192,
+ "output_tokens": 8,
+ "seconds": 74.07,
+ "requests": 114,
+ "errors": 0,
+ "req_per_s": 1.54,
+ "prompt_tok_per_s": 9456.5,
+ "output_tok_per_s": 12.3,
+ "total_tok_per_s": 9468.8,
+ "latency_p50_s": 20.674,
+ "latency_p95_s": 23.994
+}

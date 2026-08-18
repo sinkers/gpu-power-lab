@@ -1,0 +1,16 @@
+{
+ "phase": "balanced",
+ "model": "qwen72b",
+ "concurrency": 64,
+ "input_tokens": 1024,
+ "output_tokens": 256,
+ "seconds": 62.67,
+ "requests": 320,
+ "errors": 0,
+ "req_per_s": 5.11,
+ "prompt_tok_per_s": 3923.8,
+ "output_tok_per_s": 1307.2,
+ "total_tok_per_s": 5231.0,
+ "latency_p50_s": 12.608,
+ "latency_p95_s": 13.501
+}

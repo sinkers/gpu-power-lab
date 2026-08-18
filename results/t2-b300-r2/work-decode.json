@@ -1,0 +1,16 @@
+{
+ "phase": "decode",
+ "model": "qwen72b",
+ "concurrency": 96,
+ "input_tokens": 128,
+ "output_tokens": 2048,
+ "seconds": 70.46,
+ "requests": 96,
+ "errors": 0,
+ "req_per_s": 1.36,
+ "prompt_tok_per_s": 131.4,
+ "output_tok_per_s": 2790.2,
+ "total_tok_per_s": 2921.6,
+ "latency_p50_s": 70.458,
+ "latency_p95_s": 70.459
+}
