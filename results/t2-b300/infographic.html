@@ -101,10 +101,11 @@
   </div>
 
   <div>
-    <h1>How much power can one GPU actually be made to pull?</h1>
+    <h1>A capped GPU does not respect its cap</h1>
   </div>
-  <p class="sub">We wrote a synthetic workload whose only goal is to draw current, put it on a
-    Blackwell B300, and measured what the silicon does when nothing is in the way.</p>
+  <p class="sub">55 measured runs on a Blackwell B300. Real training reaches 98% of the
+    1100 W limit without trying — and when the limit is lowered, bursts blow straight
+    through it.</p>
 
   <div class="stage">
     <div>
@@ -113,40 +114,41 @@
         <div class="cols">
           <div class="col">
             <div class="colbar"></div>
-            <div class="fill" style="height:82.9%; bottom:0"></div>
-            <span class="colnum sig" style="bottom:calc(82.9% + 8px)">995 W</span>
+            <div class="fill" style="height:90.1%; bottom:0"></div>
+            <span class="colnum sig" style="bottom:calc(90.1% + 8px)">1082 W</span>
           </div>
           <div class="col">
             <div class="colbar"></div>
-            <div class="fill ox" style="height:65.1%; bottom:0"></div>
-            <span class="colnum ox" style="bottom:calc(65.1% + 8px)">781 W</span>
+            <div class="fill" style="height:87.5%; bottom:0"></div>
+            <span class="colnum sig" style="bottom:calc(87.5% + 8px)">1050 W</span>
           </div>
           <div class="col">
             <div class="colbar"></div>
-            <div class="fill band" style="bottom:16.3%; height:73.4%"></div>
-            <span class="colnum ox" style="bottom:calc(89.7% + 8px)">881 W</span>
+            <div class="fill band" style="bottom:15.3%; height:74.8%"></div>
+            <span class="colnum ox" style="bottom:calc(90.1% + 8px)">903 W</span>
           </div>
         </div>
       </div>
       <div class="axislabels">
-        <div><b>Synthetic peak</b>995 W sustained · 90.4% of the cap</div>
-        <div><b>Memory-bound</b>781 W · the closest proxy we have to live inference</div>
-        <div><b>Swing, on command</b>196 → 1076 W in 200 ms</div>
+        <div><b>Training GEMM</b>1082 W · 98.3% of the cap</div>
+        <div><b>Full training step</b>1050 W · 95.4%, incl. optimiser + dataloader</div>
+        <div><b>Swing, on command</b>184 → 1086 W, square-waved</div>
       </div>
     </div>
 
     <div class="facts">
       <div class="fact">
-        <span class="k">Sustained ceiling</span>
-        <span class="v sig">90.4%</span>
-        <span class="n">of an 1100 W part — and the throttle bits never fired once, so the
-          remaining headroom is the workload's fault, not the hardware's.</span>
+        <span class="k">Real training reaches</span>
+        <span class="v sig">98.3%</span>
+        <span class="n">of an 1100 W part. The whole overhead stack — autograd, optimiser,
+          dataloader — costs 32 W. You do not need adversarial code to reach the ceiling;
+          a transformer will do.</span>
       </div>
       <div class="fact ox">
-        <span class="k">Controllable swing</span>
-        <span class="v ox">881 W</span>
-        <span class="n">One GPU, square-waved at 2.5 Hz. Eight of them in phase is a ~7 kW step
-          at the node.</span>
+        <span class="k">Burst against a 500 W cap</span>
+        <span class="v ox">143%</span>
+        <span class="n">Peak 717 W against a 500 W limit, held for hundreds of milliseconds.
+          The controller cannot react fast enough to a burst from idle.</span>
       </div>
     </div>
   </div>
@@ -154,24 +156,24 @@
   <div class="strip">
     <div class="cell">
       <span class="h">Why it matters</span>
-      <p>A GPU fleet that can be driven to its ceiling and then modulated is a
-        <b>controllable load</b>. The same capability, uncontrolled, is a power-quality
-        problem.</p>
+      <p>Size plant to a configured cap and you are under-provisioned by up to <b>43%</b>.
+        A GPU fleet is a controllable load — but only if the cap actually holds.</p>
     </div>
     <div class="cell">
-      <span class="h">The trap we nearly fell into</span>
-      <p>The obvious way to write the tensor loop draws <b>460 W</b>. The right way draws
-        <b>989 W</b>. Same silicon, same session — a 528 W measurement error waiting to happen.</p>
+      <span class="h">What we got wrong first time</span>
+      <p>Our 12-second runs reported a <b>90.4%</b> ceiling that never throttled. Both were
+        artifacts of runs too short to settle. Sustained load reaches <b>98%</b> and does
+        throttle.</p>
     </div>
     <div class="cell">
-      <span class="h">What real jobs leave on the table</span>
-      <p>Training and inference sit <b>10–30% below</b> this ceiling. That gap is overhead —
-        sync barriers, collective waits, memory stalls — not silicon.</p>
+      <span class="h">Free efficiency</span>
+      <p>Energy-delay is <b>best at a 900 W cap</b>, not at the 1100 W default. The first
+        ~18% of capping costs nothing; below that it is a real trade.</p>
     </div>
   </div>
 
   <footer>
-    <span>Single GPU · in-band NVML measurement · no chassis-level instrumentation</span>
+    <span>Single GPU · 55 rungs · in-band NVML only · no chassis instrumentation · n=1</span>
     <span>DAME · gpu-power-lab</span>
   </footer>
 

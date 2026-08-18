@@ -556,8 +556,15 @@ def render(rungs, duty, story, out_path, campaign_dir=None):
     # Sample traces, for every rung that kept its NDJSON. Without --out-metrics
     # there is nothing to draw; the summary alone cannot show spikiness.
     tdir = campaign_dir or os.path.dirname(out_path) or "."
+    # A trace per rung is right for a small campaign and unreadable for a
+    # large one - 55 of them makes a 44,000-pixel page nobody scrolls. When
+    # story.json names the interesting rungs, show only those; the rest are
+    # still on disk for anyone who wants them.
+    want = s.get("trace_rungs")
     trace_figs = []
     for r in sorted(rungs, key=lambda r: -r["power"]["avg_w"]):
+        if want and r["_name"] not in want:
+            continue
         fig = trace_figure(tdir, r["_name"], limit,
                            f'{r["_name"]} — every sample',
                            s.get("trace_caption", ""))
@@ -573,7 +580,11 @@ def render(rungs, duty, story, out_path, campaign_dir=None):
         traces = ('  <section>\n    <p class="eyebrow">Raw telemetry</p>\n'
                   '    <h2>' + html.escape(s.get("trace_title", "Every sample")) + '</h2>\n'
                   '    <div class="prose">' + s.get("trace_prose", "") + '</div>\n'
-                  + "\n".join(trace_figs) + '\n  </section>')
+                  + "\n".join(trace_figs)
+                  + (f'\n    <p class="prose"><em>{len(rungs) - len(trace_figs)} further '
+                     f'rungs kept traces; they are in the campaign directory.</em></p>'
+                     if want else '')
+                  + '\n  </section>')
     else:
         traces = ('  <section>\n    <p class="eyebrow">Raw telemetry</p>\n'
                   '    <h2>Every sample</h2>\n    <div class="prose">'
