@@ -505,7 +505,7 @@ def render(rungs, duty, story, out_path, campaign_dir=None):
                     f'</div>')
         swing_html = f"""
   <section>
-    <p class="eyebrow">O2 · transients</p>
+    <p class="eyebrow">{html.escape(s.get("swing_eyebrow", "Transients"))}</p>
     <h2>{html.escape(s.get("swing_title", "How much can one GPU swing?"))}</h2>
     <div class="prose">{s.get("swing_prose", "")}</div>
     <figure>
@@ -617,7 +617,7 @@ def render(rungs, duty, story, out_path, campaign_dir=None):
   <hr class="divider">
 
   <section>
-    <p class="eyebrow">O1 · the ceiling</p>
+    <p class="eyebrow">{html.escape(s.get("ladder_eyebrow", "Sustained draw"))}</p>
     <h2>{html.escape(s.get("ladder_title", "Mean power by workload"))}</h2>
     <div class="prose">{s.get("ladder_prose", "")}</div>
     <figure>

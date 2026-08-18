@@ -168,8 +168,8 @@
 <div class="wrap">
   <header>
     <p class="eyebrow">gpu-power-lab · single-device measurement report · rev 2</p>
-    <h1>Sustained and transient power draw on an NVIDIA B300</h1>
-    <p class="lede">55 measured runs on one B300 SXM6 at an 1100 W enforced limit: the sustained ceiling under synthetic and real workloads, per-unit attribution, numeric format, a power-cap sweep, and transient behaviour under duty cycling.</p>
+    <h1>Power draw of a transformer training step on an NVIDIA B300</h1>
+    <p class="lede">A PyTorch training step at Llama-3-8B shapes draws 95.4% of this device's 1100 W enforced limit, and the bare GEMMs inside it draw 98.3%. Measured alongside 50 synthetic runs covering per-unit attribution, numeric format, power capping and transient behaviour.</p>
     <div class="specbar">
       <span><b>Device</b> NVIDIA B300 SXM6 AC</span>
       <span><b>Limit</b> 1,100 W</span>
@@ -182,14 +182,14 @@
 
   <div class="tiles">
     <div class="tile"><span class="k">Best sustained</span><span class="v sig">98.3%</span><span class="n">1,081.7 W of a 1,100 W cap · train-gemm. Throttled — see the table.</span></div>
-    <div class="tile"><span class="k">Peak vs reduced limit</span><span class="v ox">143%</span><span class="n">POWER_INSTANT reported 716.6 W against a 500 W enforced limit during 500 ms bursts. No excursion observed at the 1100 W default.</span></div>
-    <div class="tile"><span class="k">Idle draw</span><span class="v ox">183.5 W</span><span class="n">60 s with no workload resident, 33 °C. The baseline all swing figures are measured from.</span></div>
+    <div class="tile"><span class="k">Full training step</span><span class="v sig">95.4%</span><span class="n">1049.7 W of an 1100 W enforced limit, including optimiser and host-to-device transfer. 906 model TFLOPS, 19.4k tokens/s.</span></div>
+    <div class="tile"><span class="k">Idle draw</span><span class="v ox">183.5 W</span><span class="n">60 s with no workload resident, 33 °C. The baseline all deltas in this report are measured from.</span></div>
   </div>
 
   <hr class="divider">
 
   <section>
-    <p class="eyebrow">O1 · the ceiling</p>
+    <p class="eyebrow">All runs</p>
     <h2>Sustained power by workload</h2>
     <div class="prose"><p>Mean power over the measured window, 1100 W enforced limit unless stated, 50–100 Hz NVML sampling. Window lengths vary between campaigns; this affects the results and is discussed under corrections.</p><p>Measurements come from three campaigns on the same device: a synthetic workload ladder, a parameter sweep (caps, formats, per-unit attribution), and a PyTorch training waterfall.</p></div>
     <figure>
@@ -322,11 +322,28 @@
   </section>
 
   <section>
-    <p class="eyebrow">Training</p>
-    <h2>PyTorch training waterfall</h2>
-    <div class="prose"><p>Synthetic transformer at Llama-3-8B shapes: 32 layers, hidden 4096, FFN 14336, 32 heads, bf16, batch 2 × 4096 tokens, 94.8 GB resident. Random weights and data, since arithmetic and memory traffic follow the shapes rather than the values. Each phase adds one layer of the training step to the previous. 40 s measured window per phase, sampled by a separate process started after the workload signalled warmup complete.</p></div>
-    <div class="wideblock"><div class="tablewrap"><table class="cmp"><thead><tr><th>Training phase</th><th>Mean W</th><th>% of cap</th><th>Model TFLOPS</th><th>What it adds</th></tr></thead><tbody><tr><td><b>gemm</b> (real Llama-3-8B shapes)</td><td><b>1081.7</b></td><td><b>98.3</b></td><td>—</td><td>nothing — bare GEMMs</td></tr><tr><td>forward</td><td>1075.4</td><td>97.8</td><td>1034</td><td>attention, norms, activations</td></tr><tr><td>fwdbwd</td><td>1066.7</td><td>97.0</td><td>963</td><td>backward pass</td></tr><tr><td>optim</td><td>1050.8</td><td>95.5</td><td>—</td><td>AdamW over ~95 GB of state</td></tr><tr><td>full</td><td>1049.7</td><td>95.4</td><td>906</td><td>host-to-device batch transfer</td></tr></tbody></table></div></div>
-    <div class="prose"><p>The difference between bare GEMMs and a complete training step is 32.0 W, or 2.9 percentage points of the enforced limit. Revision 1 projected a 10–30% shortfall for real workloads, extrapolated from A10G inference measurements; that projection does not hold for training on this device.</p><p>The training GEMM phase (1081.7 W) draws more than the highest synthetic run in this set (tensor-only bf16, 1059.8 W). Both set <code>sw_power_cap</code>. The synthetic workload was written as a worst case for power draw and is not one here under compute-bound conditions.</p><p>Inference has not been measured. The memory-bound runs below (71.9% of limit) suggest the decode phase will sit lower, but that is an expectation, not a result.</p></div>
+    <p class="eyebrow">Method</p>
+    <h2>Where the 1100 W figure comes from</h2>
+    <div class="prose"><p>Every percentage in this report is against the <em>enforced power management limit</em> reported by the driver, not a vendor specification. NVML exposes four related values and they are not interchangeable, so the one in use is stated explicitly.</p></div>
+    <div class="wideblock"><div class="codecap"><b>nvidia-smi --query-gpu=...</b><span>read on the device, 18 Aug 2026</span></div><pre><code>name, power.limit, power.default_limit, power.min_limit, power.max_limit, power.draw
+NVIDIA B300 SXM6 AC, 1100.00 W, 1100.00 W, 200.00 W, 1100.00 W, 182.43 W</code></pre><div class="codecap"><b>nvidia-smi -q -d POWER</b></div><pre><code>GPU Power Readings
+    GPU Ceiling Power Limit
+        Current Power Limit    : 1100.00 W
+        Requested Power Limit  : 1100.00 W
+        Default Power Limit    : 1100.00 W
+    Min Power Limit            :  200.00 W
+    Max Power Limit            : 1100.00 W
+GPU Memory Power Readings
+Module Power Readings
+        Current Power Limit    : N/A</code></pre><div class="tablewrap"><table class="cmp"><thead><tr><th>Quantity</th><th>NVML call</th><th>Value here</th><th>Used for</th></tr></thead><tbody><tr><td>Enforced limit</td><td><code>nvmlDeviceGetPowerManagementLimit</code></td><td>1100 W</td><td>denominator for every % in this report</td></tr><tr><td>Default limit</td><td><code>...GetPowerManagementDefaultLimit</code></td><td>1100 W</td><td>the board default; equals the enforced limit here</td></tr><tr><td>Settable range</td><td><code>...GetPowerManagementLimitConstraints</code></td><td>200–1100 W</td><td>bounds for the cap sweep</td></tr><tr><td>Instantaneous draw</td><td><code>NVML_FI_DEV_POWER_INSTANT</code></td><td>varies</td><td>transient peaks</td></tr><tr><td>Averaged draw</td><td><code>nvmlDeviceGetPowerUsage</code></td><td>varies</td><td>sustained means</td></tr><tr><td>Vendor TDP</td><td>not exposed by NVML</td><td>unknown</td><td>not used</td></tr></tbody></table></div></div>
+    <div class="prose"><p>Three consequences worth stating.</p><p><strong>The default equals the maximum on this device</strong>, so there is no headroom above 1100 W to raise into; <code>nvmlDeviceSetPowerManagementLimit</code> succeeds but has nothing to do. The cap sweep therefore runs downward, within the 200–1100 W settable range.</p><p><strong>1100 W is specific to this SKU.</strong> The device identifies as <code>B300 SXM6 AC</code>. Other B300 configurations report different limits — the AWS instance catalogue records 1200 W for <code>p6-b300.48xlarge</code> — so "98.3% of the limit" is 98.3% of this board, not of every B300.</p><p><strong>This is GPU ceiling power, not module or chassis power.</strong> NVML exposes separate GPU, memory and module power domains; only the GPU ceiling is populated on this part, and module power reports N/A. Nothing here measures what the board or the node draws at the wall. The idle reading of 182.43 W taken at the time of writing corroborates the 183.5 W measured 60-second idle run.</p></div>
+  </section>
+  <section>
+    <p class="eyebrow">Primary measurement</p>
+    <h2>Transformer training step, phase by phase</h2>
+    <div class="prose"><p>The workload is a synthetic transformer at Llama-3-8B shapes, built in PyTorch with random weights and random data. No checkpoint is downloaded: arithmetic volume and memory traffic are determined by the tensor shapes, not by the values in them, so weights would add a licence dependency without changing the measurement.</p></div>
+    <div class="wideblock"><div class="tablewrap"><table class="cmp"><thead><tr><th>Configuration</th><th></th></tr></thead><tbody><tr><td>Architecture</td><td>32 blocks: RMSNorm → multi-head attention → RMSNorm → SwiGLU MLP</td></tr><tr><td>Hidden / FFN / heads</td><td>4096 / 14336 / 32</td></tr><tr><td>Parameters</td><td>7.78 B (transformer blocks only; no embedding or LM head)</td></tr><tr><td>Precision</td><td>bf16 weights and activations</td></tr><tr><td>Batch × sequence</td><td>2 × 4096 = 8192 tokens per step</td></tr><tr><td>Optimiser</td><td>AdamW, fused, fp32 state</td></tr><tr><td>Attention</td><td><code>scaled_dot_product_attention</code>, causal, flash / mem-efficient backend</td></tr><tr><td>Framework</td><td>PyTorch 2.11.0+cu128, driver 610.57.04, CUDA 13.0 toolkit</td></tr><tr><td>Measured window</td><td>40 s per phase, after 25 s warmup, 100 Hz NVML sampling</td></tr></tbody></table></div><div class="tablewrap"><table class="cmp"><thead><tr><th>Phase</th><th>Mean W</th><th>% of limit</th><th>Peak °C</th><th>Model TFLOPS</th><th>Tokens/s</th><th>Peak memory</th><th>Adds</th></tr></thead><tbody><tr><td>gemm</td><td>1081.7</td><td>98.3</td><td>59</td><td>—</td><td>—</td><td>0.7 GB</td><td>three GEMMs at layer shapes, nothing else</td></tr><tr><td>forward</td><td>1075.4</td><td>97.8</td><td>59</td><td>1034</td><td>66,429</td><td>16.8 GB</td><td>attention, norms, activations</td></tr><tr><td>fwdbwd</td><td>1066.7</td><td>97.0</td><td>59</td><td>963</td><td>20,624</td><td>79.2 GB</td><td>backward pass and gradients</td></tr><tr><td>optim</td><td>1050.8</td><td>95.5</td><td>59</td><td>908</td><td>19,440</td><td>94.7 GB</td><td>AdamW step over fp32 state</td></tr><tr><td>full</td><td>1049.7</td><td>95.4</td><td>59</td><td>906</td><td>19,404</td><td>94.8 GB</td><td>pinned host-to-device batch transfer</td></tr></tbody></table></div></div>
+    <div class="prose"><p>Model TFLOPS uses the conventional 6·N·T for a training step (2 for the forward pass, 4 for the backward) and 2·N·T for forward-only, where N is parameter count and T is tokens processed. It counts useful model arithmetic, not hardware operations, so it is not directly comparable to a vendor peak-FLOPS figure.</p><p><strong>The complete step draws 1049.7 W, 95.4% of the enforced limit.</strong> The difference between bare GEMMs and a complete step — autograd, optimiser state, host transfer — is 32.0 W, or 2.9 percentage points. Revision 1 of this report projected a 10–30% shortfall for real workloads based on A10G inference measurements; that projection does not hold for training on this device and is withdrawn.</p><p>All five phases set the <code>sw_power_cap</code> throttle bit, so the device is power-limited throughout, not thermally limited: peak core temperature is 59 °C against a much higher thermal threshold. Adding work therefore does not add power; it trades clock for work within a fixed power budget, which is why TFLOPS falls from 1034 to 906 across the waterfall while power moves only 32 W.</p><p>The training GEMM phase (1081.7 W) draws more than the highest synthetic run in this set (tensor-only bf16 via cuBLAS, 1059.8 W). The synthetic workload was written to be a worst case for power draw and is not one here.</p><p>Reproduction: <code>python3 scripts/r1_training.py --phase full --seconds 40 --warmup 25 --batch 2 --seqlen 4096</code> with <code>gpu-power-runner --op observe --steady-sec 40 --sample-hz 100</code> sampling alongside. The sampler starts only after the workload signals warmup complete, so allocator churn and kernel autotuning stay outside the measured window.</p></div>
   </section>
   <section>
     <p class="eyebrow">Transients</p>
