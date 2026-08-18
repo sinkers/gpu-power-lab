@@ -31,6 +31,8 @@ ssh -o StrictHostKeyChecking=accept-new "${SSHA[@]}" "$HOST" \
     "MODEL_DIR='$MODEL_DIR' bash -s" <<'REMOTE'
 set -u
 export PATH=$HOME/.local/bin:/usr/local/cuda/bin:$PATH
+# vLLM runs under a Python 3.12 venv; see r2-setup.sh for why.
+VPY="${GPL_VLLM_PYTHON:-$HOME/vllm-venv/bin/python}"
 mkdir -p /tmp/r2probe
 say() { echo "[$(date -u +%H:%M:%S)] $*"; }
 
@@ -56,9 +58,9 @@ PY
 probe() {  # label extra-args...
     local label="$1"; shift
     say "probe: $label"
-    timeout 900 python3 -m vllm.entrypoints.openai.api_server \
+    timeout 900 "$VPY" -m vllm.entrypoints.openai.api_server \
         --model "$MODEL_DIR" --served-model-name probe \
-        --disable-log-requests "$@" \
+        "$@" \
         > "/tmp/r2probe/$label.log" 2>&1 &
     local pid=$!
     local ok=0
@@ -81,14 +83,11 @@ probe() {  # label extra-args...
     sleep 15   # let memory actually free before the next probe
 }
 
-# Baseline: native context, conservative allocation.
-probe baseline        --gpu-memory-utilization 0.90 --max-model-len 8192
+# Each probe reloads 136 GB of weights, so the set is kept to the configs
+# that answer a distinct question. Dropped: low-allocation and short-context
+# baselines, which only confirm that a smaller ask also fits.
 
-# Push the allocation fraction. 0.97 is usually the practical ceiling before
-# vLLM has no headroom for activations and CUDA graphs.
-probe util95          --gpu-memory-utilization 0.95 --max-model-len 8192
-
-# Native context for this model, at high allocation.
+# Native context at high allocation — the reference configuration.
 probe ctx32k          --gpu-memory-utilization 0.95 --max-model-len 32768
 
 # fp8 KV: halves bytes per token, so roughly doubles cache capacity. The

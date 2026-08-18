@@ -20,16 +20,23 @@
 set -euo pipefail
 HOST="${1:?usage: $0 user@host [ssh args...]}"; shift
 SSHA=("$@")
+SSH=(ssh -o StrictHostKeyChecking=accept-new "${SSHA[@]}" "$HOST")
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 MODEL_DIR="${GPL_MODEL_DIR:-/tmp/qwen72b}"
 
 rsync -az -e "ssh -o StrictHostKeyChecking=accept-new ${SSHA[*]}" \
       "$REPO/scripts/r2_inference.py" "$HOST:~/gpu-power-lab/scripts/"
 
-ssh -o StrictHostKeyChecking=accept-new "${SSHA[@]}" "$HOST" \
-    "MODEL_DIR='$MODEL_DIR' nohup bash -s > /tmp/r2.log 2>&1 &" <<'REMOTE'
+# Write the remote body to a file and nohup THAT. Feeding it to
+# `nohup bash -s` over stdin looks equivalent but is not: when the SSH
+# channel closes, bash -s stops reading and the job dies, leaving an
+# empty log and no process. nohup protects against SIGHUP, not against
+# stdin disappearing.
+cat > /tmp/gpl-r2-run.sh <<'REMOTE'
 set -u
 export PATH=$HOME/.local/bin:/usr/local/cuda/bin:$PATH
+# vLLM runs under a Python 3.12 venv; see r2-setup.sh for why.
+VPY="${GPL_VLLM_PYTHON:-$HOME/vllm-venv/bin/python}"
 cd ~/gpu-power-lab
 mkdir -p /tmp/r2
 R=./runner/build/gpu-power-runner
@@ -40,12 +47,12 @@ LOAD=$(cut -d' ' -f1 /proc/loadavg)
 say "  1-minute load average: $LOAD (competing CPU work will distort this run)"
 
 say "starting vLLM on $MODEL_DIR"
-nohup python3 -m vllm.entrypoints.openai.api_server \
+nohup "$VPY" -m vllm.entrypoints.openai.api_server \
     --model "$MODEL_DIR" \
     --served-model-name qwen72b \
     --gpu-memory-utilization 0.95 \
     --max-model-len 16384 \
-    --disable-log-requests \
+    \
     > /tmp/r2/vllm-server.log 2>&1 &
 VPID=$!
 
@@ -73,7 +80,7 @@ sudo $R --op observe --steady-sec 45 --sample-hz 100 \
 phase() {  # name concurrency in out seconds
     say "phase: $1 (concurrency $2, ${3} in / ${4} out)"
     rm -f /tmp/r2/$1.ready
-    python3 scripts/r2_inference.py --phase "$1" --concurrency "$2" \
+    "$VPY" scripts/r2_inference.py --phase "$1" --concurrency "$2" \
         --input-tokens "$3" --output-tokens "$4" --seconds "$5" --warmup 25 \
         --ready-file /tmp/r2/$1.ready --out /tmp/r2/work-$1.json \
         > /tmp/r2/$1.stdout 2>/tmp/r2/$1.stderr &
@@ -115,6 +122,9 @@ kill $VPID 2>/dev/null || true
 sleep 10
 say "R2 DONE"
 REMOTE
+
+scp -q -o StrictHostKeyChecking=accept-new "${SSHA[@]}" /tmp/gpl-r2-run.sh "$HOST:/tmp/"
+"${SSH[@]}" "MODEL_DIR='$MODEL_DIR' nohup bash /tmp/gpl-r2-run.sh > /tmp/r2.log 2>&1 & echo started pid \$!"
 
 echo
 echo "Follow:   ssh ${SSHA[*]} $HOST 'tail -f /tmp/r2.log'"

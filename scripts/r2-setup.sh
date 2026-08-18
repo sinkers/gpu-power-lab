@@ -30,17 +30,47 @@ rsync -az -e "ssh -o StrictHostKeyChecking=accept-new ${SSHA[*]}" \
       "$REPO/scripts/r2_inference.py" "$HOST:~/gpu-power-lab/scripts/"
 
 echo "==> setup (detached; follow /tmp/r2-setup.log)"
-"${SSH[@]}" "MODEL='$MODEL' MODEL_DIR='$MODEL_DIR' nohup bash -s > /tmp/r2-setup.log 2>&1 &" <<'REMOTE'
+# Write the remote body to a file and nohup THAT. Feeding it to
+# `nohup bash -s` over stdin looks equivalent but is not: when the SSH
+# channel closes, bash -s stops reading and the job dies, leaving an
+# empty log and no process. nohup protects against SIGHUP, not against
+# stdin disappearing.
+cat > /tmp/gpl-r2-setup.sh <<'REMOTE'
 set -u
 export PATH=$HOME/.local/bin:/usr/local/cuda/bin:$PATH
 say() { echo "[$(date -u +%H:%M:%S)] $*"; }
 
-say "python deps"
-python3 -m pip install --quiet --upgrade pip 2>&1 | tail -1
-# hf_transfer is worth the extra dependency: it roughly doubles throughput on
-# a multi-file download of this size.
-python3 -m pip install --quiet vllm aiohttp huggingface_hub hf_transfer 2>&1 | tail -2
-python3 -c "import vllm, aiohttp; print('vllm', vllm.__version__)"
+# vLLM 0.27 pulls in flashinfer, which uses `array.array[int]` subscript
+# syntax that Ubuntu 22.04's system Python 3.10 cannot parse:
+#   TypeError: 'type' object is not subscriptable
+# The engine dies during initialisation with a traceback that points at
+# vllm/compilation, not at the Python version, so it is worth stating the
+# cause here. Fix is a newer interpreter, not a vLLM downgrade.
+#
+# uv fetches a standalone CPython rather than requiring a PPA, which keeps
+# this reproducible on a fresh box with no extra apt sources.
+say "python 3.12 toolchain"
+if [ ! -x "$HOME/.local/bin/uv" ]; then
+    curl -LsSf https://astral.sh/uv/install.sh | sh 2>&1 | tail -1
+fi
+export PATH=$HOME/.local/bin:$PATH
+
+VENV="$HOME/vllm-venv"
+if [ ! -x "$VENV/bin/python" ]; then
+    uv venv --python 3.12 "$VENV" 2>&1 | tail -2
+fi
+"$VENV/bin/python" --version
+
+say "vllm into $VENV"
+if ! "$VENV/bin/python" -c "import vllm" 2>/dev/null; then
+    uv pip install --python "$VENV/bin/python" --quiet \
+        vllm aiohttp huggingface_hub hf_transfer 2>&1 | tail -3
+fi
+"$VENV/bin/python" -c "import vllm, aiohttp; print('vllm', vllm.__version__)"
+
+# The model download only needs huggingface_hub, so keep it on system python
+# to avoid re-downloading if the venv is ever rebuilt.
+python3 -m pip install --quiet huggingface_hub hf_transfer 2>&1 | tail -1
 
 say "model: $MODEL -> $MODEL_DIR"
 if [ -f "$MODEL_DIR/config.json" ] && [ "$(du -s "$MODEL_DIR" | cut -f1)" -gt 1000000 ]; then
@@ -55,6 +85,9 @@ df -h / | tail -1
 nvidia-smi --query-gpu=memory.total,memory.used,power.draw --format=csv,noheader
 say "R2_SETUP_READY"
 REMOTE
+
+scp -q -o StrictHostKeyChecking=accept-new "${SSHA[@]}" /tmp/gpl-r2-setup.sh "$HOST:/tmp/"
+"${SSH[@]}" "MODEL='$MODEL' MODEL_DIR='$MODEL_DIR' nohup bash /tmp/gpl-r2-setup.sh > /tmp/r2-setup.log 2>&1 & echo started pid \$!"
 
 echo
 echo "Follow:  ssh ${SSHA[*]} $HOST 'tail -f /tmp/r2-setup.log'"
